@@ -53,7 +53,7 @@ def spec_plot(freq,I,Q,readout_power=-30,qubit_drive_amp=0.2):
         txt += "%.4f GHz \n" %(freq[i]*1e-9)
     print('Peaks are at: %s'%txt)
 
-def pulse_plot1d(sequence,x_vector,y_vector,dt=0.01,qubitDriveFreq=3.8e9,amplitude_hd=1,AC_pars=[0,0],RT_pars=[0,0],pi2Width=50e-9,piWidth_Y=0,fitting = 1, plot=1,save_fig = 0,iteration=1,nAverages=1,sampling_rate=2.4e9,integration_length=2e-6,AC_freq=5e9,cav_resp_time=5e-6,sweep=0,stepSize=5e-6,Tmax=5e-6,measPeriod=5e-6):
+def pulse_plot1d(sequence,x_vector,y_vector,dt=0.01,qubitDriveFreq=3.8e9,amplitude_hd=1,AC_pars=[0,0],RT_pars=[0,0],pi2Width=50e-9,piWidth_Y=0,fitting = 1, plot=1,save_fig = 0,iteration=1,nAverages=1,sampling_rate=2.4e9,integration_length=2e-6,AC_freq=5e9,cav_resp_time=5e-6,sweep=0,stepSize=5e-6,Tmax=5e-6,measPeriod=5e-6,nSteps=101):
 
     '''
     plot 1D pulse experiment data
@@ -158,7 +158,7 @@ def pulse_plot1d(sequence,x_vector,y_vector,dt=0.01,qubitDriveFreq=3.8e9,amplitu
             ax.set_ylabel('Digitizer Voltage (mV)')
             ax.set_xlabel('Pulse Separation ($\mu$s)')
             ax.plot(x_vector,ramsey(x_vector, best_vals[0], best_vals[1], best_vals[2],best_vals[3],best_vals[4]),'r')
-            textstr = '$T_{\pi/2}$=%.1f ns\n$\omega_d$ = %.4f GHz\n$A_d$ = %.2f V\n$\Delta$=%.3f MHz\n$T_2^*$=%.2f $\mu$s\n$\mu$ = %.3f V\n$\omega_{AC}$ = %.4f GHz\n$\sigma$ = %.3f V\n$B_0$ = %.2f V\n$\\tau_k$ = %.2f $\mu s$\n$\hatn$ = %d'%(pi2Width*1e9,qubitDriveFreq*1e-9,amplitude_hd,best_vals[1],best_vals[3],AC_pars[0],AC_freq*1e-9,AC_pars[1],RT_pars[0],RT_pars[1],nAverages)
+            textstr = '$T_{\pi/2}$=%.1f ns\n$\omega_d$ = %.6f GHz\n$A_d$ = %.2f V\n$\Delta$=%.3f MHz\n$T_2^*$=%.2f $\mu$s\n$\mu$ = %.3f V\n$\omega_{AC}$ = %.4f GHz\n$\sigma$ = %.3f V\n$B_0$ = %.2f V\n$\\tau_k$ = %.2f $\mu s$\n$\hatn$ = %d'%(pi2Width*1e9,qubitDriveFreq*1e-9,amplitude_hd,best_vals[1],best_vals[3],AC_pars[0],AC_freq*1e-9,AC_pars[1],RT_pars[0],RT_pars[1],nAverages)
             ax.set_title('Ramsey Measurement %03d' %(iteration))
             plt.gcf().text(0.95, 0.15, textstr, fontsize=14)
         elif sequence == "echo":

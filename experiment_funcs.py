@@ -391,7 +391,7 @@ def spectroscopy(daq,device_qa,awg,device_awg,qubitLO=0,cav_resp_time=1e-6,integ
     return power_data,I_data,Q_data
 
 def pulse(daq,awg,channel=0,setup=[0,0,0],Tmax=0.3e-6,nSteps=61,nAverages=128,amplitude_hd=1,sequence='rabi',AC_pars=[0,0],stepSize=2e-9,\
-          RT_pars=[0,0],cav_resp_time=0.5e-6,piWidth_Y=0,AC_freq=5e-9,pipulse_position=20e-9,integration_length=1.2e-6,qubitDriveFreq=3.8135e9,run=1,pi2Width=0,sampling_rate=1.2e9,measPeriod=200e-6,sweep=0,sweep_name='sweep_001',instance=0):
+          RT_pars=[0,0],cav_resp_time=0.5e-6,piWidth_Y=0,AC_freq=5e-9,pipulse_position=20e-9,integration_length=2.3e-6,qubitDriveFreq=3.8135e9,run=1,pi2Width=0,sampling_rate=1.2e9,measPeriod=300e-6,sweep=0,sweep_name='sweep_001',instance=0):
 
 
     '''
@@ -468,9 +468,12 @@ def pulse(daq,awg,channel=0,setup=[0,0,0],Tmax=0.3e-6,nSteps=61,nAverages=128,am
         use_ct = 0
     print('Estimated Measurement Time: %d sec'%(calc_timeout(nAverages, measPeriod, stepSize, nSteps)))
     ct_awg = json.loads(daq.get(f"/{device_awg}/awgs/0/commandtable/data",flat=True)[f"/{device_awg}/awgs/0/commandtable/data"][0]['vector'])
-    if ct_awg != ct and use_ct == 1:
-        print('Error! Invalid Command Table used for Measurement\nCommand Table Sent to AWG\n\n%s\n\nCommand Table in AWG\n\n%s'%(ct,ct_awg))
-        sys.exit()
+    if setup[0] == 0:
+        if use_ct == 1:
+            if ct_awg != ct:
+                print('Error! Invalid Command Table used for Measurement\nCommand Table Sent to AWG\n\n%s\n\nCommand Table in AWG\n\n%s'%(ct,ct_awg))
+                sys.exit()
+
     else:
         result_length = nSteps
         timeout = 2*nSteps*measPeriod*nAverages
@@ -502,8 +505,9 @@ def pulse(daq,awg,channel=0,setup=[0,0,0],Tmax=0.3e-6,nSteps=61,nAverages=128,am
         #Generate time array points
 
         t = np.zeros(nSteps)
+        ct_awg = json.loads(daq.get(f"/{device_awg}/awgs/0/commandtable/data",flat=True)[f"/{device_awg}/awgs/0/commandtable/data"][0]['vector']) #
         for i in range(nSteps):
-            t[i] = ct['table'][i]['waveform']['length']/fs
+            t[i] = ct_awg['table'][i]['waveform']['length']/fs
         if sequence=='echo':
             t = 2*t
 

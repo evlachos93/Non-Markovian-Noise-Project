@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# This package includes 
-# * General setting 
+# This package includes
+# * General setting
 # * UHFQA connection
-# * UHFQA general setting 
+# * UHFQA general setting
 # * UHFQA QA setting
 # * UHFQA AWG setting
 # * Scope module
@@ -12,7 +12,7 @@
 
 # # General setting
 
-# ## Import modules 
+# ## Import modules
 
 # In[1]:
 
@@ -27,7 +27,7 @@ import scipy as sp
 import scipy.signal as ss
 import enum
 import matplotlib.pyplot as plt
-import scipy as scy 
+import scipy as scy
 import zhinst.utils as ziut
 import zhinst
 import sympy as sy
@@ -59,7 +59,7 @@ plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
 class ResultLoggingSource(enum.IntEnum):
     '''
     Constants for selecting result logging source
-    '''  
+    '''
     TRANS = 0
     THRES = 1
     ROT = 2
@@ -76,10 +76,10 @@ class ResultLoggingSource(enum.IntEnum):
 def create_api_sessions_uhf(device_uhf_id, use_discovery = 1, ip = '10.42.0.226'):
     '''
     create API sessions for UHFQA
-    
+
     device_id_uhf:    device ID of UHF
     '''
-#     global daq, device_uhf    
+#     global daq, device_uhf
     apilevel_example = 6  # The API level supported by this example.
 
     # Call a zhinst utility function that returns:
@@ -88,25 +88,25 @@ def create_api_sessions_uhf(device_uhf_id, use_discovery = 1, ip = '10.42.0.226'
     # - the device's discovery properties.
     # required_devtype = 'UHFQA'
     # required_options = ['QA','AWG']
-                        
+
     if not use_discovery:
         daq = zhinst.ziPython.ziDAQServer(ip, 8004, apilevel_example)
         daq.connectDevice(device_uhf_id, '1gbe')
         device_uhf = device_uhf_id
         daq.setInt(f'/zi/config/open', 1)
     else:
-        daq, device_uhf,props = ziut.create_api_session(device_uhf_id, apilevel_example)   
+        daq, device_uhf,props = ziut.create_api_session(device_uhf_id, apilevel_example)
     return daq, device_uhf
 
 def init(daq, device, output_range_uhf = 1.5, input_range_uhf = 0.3):
     '''
     Initialize device for UHFQA examples
-     
+
     daq:               device daq
     device:            device ID
     output_range_uhf:  ouput range of UHF
     input_range_uhf:   input range of UHFQA
-    ''' 
+    '''
     # General setup
     parameters = [
         # Input and output ranges
@@ -167,22 +167,22 @@ def init(daq, device, output_range_uhf = 1.5, input_range_uhf = 0.3):
 def awg_seq_readout(daq, device, cav_resp_time = 4e-6,base_rate = 450e6, amplitude_uhf = 1,readout_length = 2.2e-6,nPoints=1000,timeout=1):
     '''
     AWG sequence for spectroscopy experiment and compile it
-        
+
     daq:                device daq
     device:             device ID
     sample_exponent:    a factor (base rate / 2^(sample_exponent)) to reduce sampling rate. Default is 450 MHz
-    base_rate:          sampling rate 
-    amplitude_uhf:      amplitude setting in SeqC 
-    readout_length:     readout length in second 
+    base_rate:          sampling rate
+    amplitude_uhf:      amplitude setting in SeqC
+    readout_length:     readout length in second
     averages_exponent:  average times in 2^(averages_exponent)
     result_length:      number of interested result
     '''
-    
-    awg_program=textwrap.dedent("""    
+
+    awg_program=textwrap.dedent("""
     const FS = _c00_;
     const f_c = 1.8e9;      // clock rate
     const f_seq = f_c/8;     // sequencer instruction rate
-    const dt = 1/f_seq;   
+    const dt = 1/f_seq;
     const N = _c1_;
     const cavity_response_time = _c2_;
     const cav_rate = floor(cavity_response_time/dt);
@@ -190,19 +190,21 @@ def awg_seq_readout(daq, device, cav_resp_time = 4e-6,base_rate = 450e6, amplitu
 
     while(true) {
         waitDigTrigger(1,1);
+        //playZero(_c4_,AWG_RATE_225MHZ);
         playWave(1,readoutPulse);
         wait(cav_rate);
         startQA();
-        
+
     }
     """)
     awg_program = awg_program.replace('_c00_', str(base_rate))
-    awg_program = awg_program.replace('_c1_', str(nPoints))  
+    awg_program = awg_program.replace('_c1_', str(nPoints))
     awg_program = awg_program.replace('_c2_', str(cav_resp_time))
-    awg_program = awg_program.replace('_c3_', str(amplitude_uhf)) 
-    
+    awg_program = awg_program.replace('_c3_', str(amplitude_uhf))
+    awg_program = awg_program.replace('_c4_', str(int(225e6*2e-6)))
+
     create_and_compile_awg(daq, device,  awg_program, seqr_index = 0, timeout = timeout)
-    
+
 def config_qa(daq,device,integration_length=2.2e-6,delay=300e-9,nAverages=128,sequence='pulse',result_length=1):
     print('-------------Configuring QA-------------\n')
     base_rate=1.8e9
@@ -210,7 +212,7 @@ def config_qa(daq,device,integration_length=2.2e-6,delay=300e-9,nAverages=128,se
     # set modulation frequency of QA AWG to 0 and adjust input range for better resolution
     daq.setDouble('/{:s}/sigins/0/range'.format(device),0.5)
     daq.setInt('/{:s}/oscs/0/freq'.format(device),0)
-    
+
     # QA setup Settings
     daq.setInt('/{:s}/qas/0/integration/sources/1'.format(device), 0)
     daq.setInt('/{:s}/qas/0/delay'.format(device),round(delay*base_rate))
@@ -218,48 +220,48 @@ def config_qa(daq,device,integration_length=2.2e-6,delay=300e-9,nAverages=128,se
         daq.setInt('/{:s}/qas/0/integration/mode'.format(device), 0) # 0 for standard (4096 samples max), 1 for spectroscopy
     elif sequence =='pulse':
         daq.setInt('/{:s}/qas/0/integration/mode'.format(device), 0)
-    daq.setInt('/{:s}/qas/0/integration/length'.format(device), int(base_rate*integration_length))   
+    daq.setInt('/{:s}/qas/0/integration/length'.format(device), int(base_rate*integration_length))
     daq.setInt('/{:s}/qas/0/bypass/crosstalk'.format(device), bypass_crosstalk)   #No crosstalk matrix
     daq.setInt('/{:s}/qas/0/bypass/deskew'.format(device), 1)   #No crosstalk matrix
     weights = np.ones((round(integration_length*base_rate)))
     daq.setVector('/{:s}/qas/0/integration/weights/0/real'.format(device), weights)
     daq.setVector('/{:s}/qas/0/integration/weights/0/imag'.format(device), weights)
     daq.setInt('/{:s}/qas/0/integration/trigger/channel'.format(device), 7); # 0 for trigger input ch 1, 7 for internal triggering (QA AWG -> QA)
-    
+
     # QA Monitor Settings
     daq.setInt('/{:s}/qas/0/monitor/trigger/channel'.format(device), 7)
     daq.setInt('/{:s}/qas/0/monitor/averages'.format(device),nAverages)
     daq.setInt('/{:s}/qas/0/monitor/length'.format(device), 4096)
     # configure triggering (0=trigger input 1 7 for internal trigger)
-    
+
     # QA Result Settings
     daq.setInt('/{:s}/qas/0/result/length'.format(device), result_length)
     daq.setInt('/{:s}/qas/0/result/averages'.format(device), nAverages)
     daq.setInt('/{:s}/qas/0/result/source'.format(device), 7) # 2 -> source = rotation | 7 = integration
     daq.setInt('/{:s}/qas/0/result/reset'.format(device), 1)
-    daq.setInt('/{:s}/qas/0/result/enable'.format(device), 1) 
-    # if exp=='spec': 
-    #    daq.setInt('/{:s}/qas/0/result/mode'.format(device), 1) # sequential averaging    
+    daq.setInt('/{:s}/qas/0/result/enable'.format(device), 1)
+    # if exp=='spec':
+    #    daq.setInt('/{:s}/qas/0/result/mode'.format(device), 1) # sequential averaging
     # elif exp=='pulse':
     daq.setInt('/{:s}/qas/0/result/mode'.format(device),0) # cyclic averaging
     daq.sync()
 
 def config_sigin(daq, device, input_range_uhf = 1, ac = [0,0]):
     '''
-    config signal input 
-    
+    config signal input
+
     daq,                  daq ID
     device:               device ID
     input_range_uhf: input range of UHF, 10 mV to 1.5 V
     ac:   (0/1, 0/1):     (not AC couple/AC coupled for input ch1,  not AC couple/AC coupled for input ch2)
     '''
-    
+
     daq.setInt('/%s/sigins/0/imp50' % device, 1)
     daq.setInt('/%s/sigins/1/imp50' % device, 1)
     daq.setInt('/%s/sigins/0/ac' % device, ac[0])
     daq.setInt('/%s/sigins/1/ac' % device, ac[1])
     daq.setDouble('/%s/sigins/0/range' % device, input_range_uhf)
-    
+
 def toggle_outputs(daq, device, channel=None):
     """
     Toggles signal output of UHFQA. If no channel specified toggles both.
@@ -267,7 +269,7 @@ def toggle_outputs(daq, device, channel=None):
         daq (zhinst.ziDAQServer) -- Data Server Object
         device (String) -- device ID, e.g. "dev2266"
     Keyword Arguments:
-        channel (int) -- list of channels to be toggled (in 0, 1) 
+        channel (int) -- list of channels to be toggled (in 0, 1)
                             (default: None)
     """
 
@@ -290,20 +292,20 @@ def enable_output(daq, device, channel=[0, 1], enable=[1, 1]):
         daq (zhinst.ziDAQServer) -- Data Server Object
         device (String) -- device ID, e.g. "dev2266"
     Keyword Arguments:
-        channel (array) -- channel array 
+        channel (array) -- channel array
                             (default: None)
         enable  (array) -- enable or disable arrage according to the channels. Default is 1 -> enable, 0 -> disable
-        
+
     """
 
 
     for i in range(len(channel)):
         daq.setInt(f"/{device}/sigouts/{channel[i]}/on", enable[i])
 
-def osc_f(daq, device, frequency=150e6):     
+def osc_f(daq, device, frequency=150e6):
     '''
-    oscillator frequency setting 
-    
+    oscillator frequency setting
+
     daq:                         daq ID
     device:                      device ID
     frequency:      frequency of osc in Hz
@@ -313,11 +315,11 @@ def osc_f(daq, device, frequency=150e6):
 def triggers(daq, device, in_out=['out','out'], source=[74,64], dio_ch = 0, dio_drive = 1):
     '''
     trigger sources setting and trigger in or out enabled for trigger port 1 and 2
-    
+
     daq:                                daq ID
-    device:                             device ID    
+    device:                             device ID
     in_out:   ['in'/'out', 'in'/'out']: in or out enabled for trigger port 1 and 2
-    source:            64:              QA result 1 
+    source:            64:              QA result 1
                        74:              QA result Trigger
     '''
     daq.setInt(f'/{device:s}/dios/{dio_ch:d}/drive', dio_drive);
@@ -336,7 +338,7 @@ def set_qa_monitor(daq, device, monitor_length, averages):
     """
 
     settings = [
-        ("qas/0/monitor/enable", 0),        
+        ("qas/0/monitor/enable", 0),
         ("qas/0/monitor/length", monitor_length),
         ("qas/0/monitor/averages", averages),
         ("qas/0/monitor/enable", 1),
@@ -353,8 +355,8 @@ def set_qa_results(daq, device, result_length, result_averages, source="integrat
         result_length (int) --  number of samples to be recorded
         result_averages (int) -- number of averages for results
     Keyword Arguments:
-        source (str) -- specifies data source of QA 
-                        "integratio", "rotation" or "threshold" 
+        source (str) -- specifies data source of QA
+                        "integratio", "rotation" or "threshold"
                         (default: "integration")
     """
 
@@ -366,7 +368,7 @@ def set_qa_results(daq, device, result_length, result_averages, source="integrat
         source = 1
 
     settings = [
-        ("qas/0/result/enable", 0),        
+        ("qas/0/result/enable", 0),
         ("qas/0/result/length", result_length),
         ("qas/0/result/averages", result_averages),
         ("qas/0/result/source", source),
@@ -379,32 +381,32 @@ def set_qa_results(daq, device, result_length, result_averages, source="integrat
 def qa_result_reset(daq, device, reset = 1):
     '''
     result reset of QA
-    
+
     device:            device ID
     reset:      0:     do not reset
     reset:      1:     reset
     '''
-    
+
     daq.setInt('/{:s}/qas/0/result/reset'.format(device), reset)
 
 def qa_result_enable(daq, device, enable = 1):
     '''
-    enable QA result 
+    enable QA result
 
     device:            device ID
-    enable:      0:    disable QA result 
-                 1:    enable QA result 
+    enable:      0:    disable QA result
+                 1:    enable QA result
     '''
-    
+
     daq.setInt('/{:s}/qas/0/result/enable'.format(device), enable)
 
 def create_sweep_data_dict(daq, device):
     '''
     create sweep data dictionary for ch1 and ch2
-    
+
     device:         device ID
     '''
-    
+
     channels = [0, 1]
     # Subscribe to result waves
     paths = []
@@ -413,7 +415,7 @@ def create_sweep_data_dict(daq, device):
         paths.append(path)
     daq.subscribe(paths)
     sweep_data = dict()
-    
+
     for path in paths:
         sweep_data[path] = np.array([])
     return sweep_data, paths
@@ -436,11 +438,11 @@ def acquisition_poll(daq, paths, num_samples, timeout):
 
     # Poll data
     t = 0
-   
+
     while t < timeout and not all(gotem.values()):
 
         dataset = daq.poll(poll_length, poll_timeout, poll_flags, poll_return_flat_dict)
-        
+
         for p in paths:
             if p not in dataset:
                 continue
@@ -462,10 +464,10 @@ def acquisition_poll(daq, paths, num_samples, timeout):
 
 def stop_result_unit(daq, device, paths):
     '''
-    stop QA result unit, 
-    
+    stop QA result unit,
+
     daq:             dag ID
-    device:          device ID 
+    device:          device ID
     paths:           data paths
     '''
     daq.unsubscribe(paths)
@@ -475,22 +477,22 @@ def config_awg(daq, device, base_rate = 1.8e9, intermediate_frequency_uhf = 150e
 
     '''
     config AWG
-    
+
     daq:                         daq ID
-    device:                      device ID  
-    base_rate:                   sampling rate 
+    device:                      device ID
+    base_rate:                   sampling rate
     intermediate_frequency_uhf:  UHF osc frequency in Hz
     amplitude_scale_uhf:         amplitude of AWG outupt 1 and 2, range from 0 to 1
     input_range_uhf:             input range of UHF, range from 10 mV to 1.5 V
     sample_exponent:             a factor (base rate / 2^(sample_exponent)) to reduce sampling rate
     averages_exponent:           averate times in 2^(averages_exponent)
     awg_mode:       0:           Plain: AWG Output goes directly to Signal Output.
-                    1:           Modulation: AWG Output 1 (2) is multiplied with oscillator 
+                    1:           Modulation: AWG Output 1 (2) is multiplied with oscillator
                                  signal of demodulator 4 (8).
                     2:           Advanced: Output of AWG channel 1 (2) modulates demodulators
-                                 1-4 (5-8) with independent envelopes.            
+                                 1-4 (5-8) with independent envelopes.
     '''
-    
+
     # Configfigure AWG
 
     daq.setDouble('/{:s}/awgs/0/outputs/0/amplitude'.format(device), amplitude_scale_uhf)
@@ -499,7 +501,7 @@ def config_awg(daq, device, base_rate = 1.8e9, intermediate_frequency_uhf = 150e
 #    waveform_length = sample_rate*readout_length
 #    num_averages = 2**averages_exponent
 #    awg_seq(c0=sample_exponent, c1=readout_length, c20=result_length, c21=averages_exponent, c3=amplitude_uhf, contn=continuous)
-    
+
     # Configure AWG
     daq.setInt('/{:s}/awgs/0/time'.format(device), sample_exponent)
     daq.setInt('/{:s}/awgs/0/outputs/*/mode'.format(device), awg_mode) # modulation mode =1
@@ -516,7 +518,7 @@ def config_awg(daq, device, base_rate = 1.8e9, intermediate_frequency_uhf = 150e
 
 def awg_enable(daq, device, enable = 1):
     '''
-    enable AWG 
+    enable AWG
 
     device:            device ID
     enable:    0:      disable AWG
@@ -526,15 +528,15 @@ def awg_enable(daq, device, enable = 1):
 
 def enable_awg(daq, device, enable=1):
     '''
-    enable/disable AWG 
-    
+    enable/disable AWG
+
     daq:             dag ID
-    device:          device ID 
-    enable:     0:   diable AWG 
+    device:          device ID
+    enable:     0:   diable AWG
                 1:   enable AWG
     '''
     daq.asyncSetInt('/{:s}/awgs/0/single'.format(device), 1)
-    daq.syncSetInt('/{:s}/awgs/0/enable'.format(device), enable)  
+    daq.syncSetInt('/{:s}/awgs/0/enable'.format(device), enable)
 
 
 
@@ -542,11 +544,11 @@ def awg_seq_rb_1q(daq, device, trigger_delay_sec= 50e-9, wave_dur_sec=2e-6, ampl
     awg_program = textwrap.dedent("""
     const f_s = 1.8e9;
     const f_seq = f_s/8;
-    
-    const trigger_delay_sec = _c0_; // adjust this number if necessary to align the control and readout pulse 
+
+    const trigger_delay_sec = _c0_; // adjust this number if necessary to align the control and readout pulse
     const wave_dur_sec  = _c1_; // width of the readout pulse
     const amplitude_uhf = _c2_;
-    
+
     wave w_I_qb1 = amplitude_uhf*ones(wave_dur_sec*f_s);
     wave w_Q_qb1 = amplitude_uhf*ones(wave_dur_sec*f_s);
 
@@ -561,8 +563,8 @@ def awg_seq_rb_1q(daq, device, trigger_delay_sec= 50e-9, wave_dur_sec=2e-6, ampl
     """)
     awg_program = awg_program.replace('_c0_', str(trigger_delay_sec))
     awg_program = awg_program.replace('_c1_', str(wave_dur_sec))
-    awg_program = awg_program.replace('_c2_', str(amplitude_uhf))   
-    
+    awg_program = awg_program.replace('_c2_', str(amplitude_uhf))
+
     create_and_compile_awg(daq, device,  awg_program, seqr_index = 0, timeout = 2)
 
 def create_and_compile_awg(daq, device, awg_program, seqr_index= 0, timeout=1,verbose=0):
@@ -628,8 +630,8 @@ def create_and_compile_awg(daq, device, awg_program, seqr_index= 0, timeout=1,ve
     if elfStatus == 0:
         print("Upload to the instrument successful.")
     if elfStatus == 1:
-        raise Exception("Upload to the instrument failed.") 
-        
+        raise Exception("Upload to the instrument failed.")
+
 def awg_seq_reset_wo_qubit(daq, device):
     awg_program = textwrap.dedent("""    wave w_g = 0.1*ones(1024);
     wave w_e = 0.5*ones(1024);
@@ -653,14 +655,14 @@ def awg_seq_reset_wo_qubit(daq, device):
     create_and_compile_awg(daq, device,  awg_program, seqr_index = 0, timeout = 2)
 
 def awg_seq_latency(daq, device):
-    
+
     '''
     AWG sequence for latency demo of UHFQA only and compile it
-        
+
     daq:                device daq
-    device:             device ID    
+    device:             device ID
     '''
-    
+
     awg_program = textwrap.dedent("""
     const length = 4096;
     wave w_I = ones(length);
@@ -694,10 +696,10 @@ def sequence_multiplexed_readout(
     state=None,
 ):
     """
-    Returns an AWG sequence program (String) that specifies 
-    the sequence for multiplexed readout. Amplitudes and phases 
-    are hardcoded in the function for up to 10 channels and for 
-    ground and excited qubit states (simulated response of a 
+    Returns an AWG sequence program (String) that specifies
+    the sequence for multiplexed readout. Amplitudes and phases
+    are hardcoded in the function for up to 10 channels and for
+    ground and excited qubit states (simulated response of a
     readout resonator for qubit in either ground or excited state).
     Arguments:
         channels (int) -- indices of channels to create readout pulses for
@@ -714,13 +716,13 @@ def sequence_multiplexed_readout(
     phases = np.zeros(10)
     deltas_amplitude = np.array([0.02, 0.01, -0.01, 0.02, -0.012, 0.0, 0.02, -0.012, 0.06, 0.03])
     deltas_phase = np.array([0.23, 0.31, 0.26, -0.171, 0.28, -0.31, 0.19, -0.21, 0.091, 0.29]) * np.pi/4
-    
+
     n_channels = len(channels)
     assert len(frequencies) >= max(channels), "Not enough readout frequencies specified!"
 
     if state is None:
         state = [0] * n_channels
-    
+
     for i, ch  in enumerate(channels):
         if frequencies[ch] < 0:
             frequencies[ch] = abs(frequencies[ch])
@@ -728,7 +730,7 @@ def sequence_multiplexed_readout(
         if state[i]:
             amplitudes[ch] = amplitudes[ch] * (1 + deltas_amplitude[ch])
             phases[ch] += deltas_phase[ch]
-    
+
     # text snippet for the initialization of awg sequence
     awg_program_init = textwrap.dedent(
         """\
@@ -746,7 +748,7 @@ def sequence_multiplexed_readout(
         wave w_gauss_fall = gauss(2*fall, fall, fall/4);
         wave w_rise = cut(w_gauss_rise, 0, rise);
         wave w_fall = cut(w_gauss_fall, fall, 2*fall-1);
-        wave w_flat = rect(length, 1.0); 
+        wave w_flat = rect(length, 1.0);
         wave w_pad = zeros((totalLength-1)%16);
         // combine to total envelope
         wave readoutPulse = 1.0*join(w_rise, w_flat, w_fall, w_pad) + 0.0* w_gauss_rise;
@@ -813,14 +815,14 @@ def sequence_multiplexed_readout_non_simu(
     channels,
     frequencies,
     n_averages,
-    time_origin_sec = 160e-6, 
+    time_origin_sec = 160e-6,
     trigger_delay_sec = 57e-9
 ):
     """
-    Returns an AWG sequence program (String) that specifies 
-    the sequence for multiplexed readout. Amplitudes and phases 
-    are hardcoded in the function for up to 10 channels and for 
-    ground and excited qubit states (simulated response of a 
+    Returns an AWG sequence program (String) that specifies
+    the sequence for multiplexed readout. Amplitudes and phases
+    are hardcoded in the function for up to 10 channels and for
+    ground and excited qubit states (simulated response of a
     readout resonator for qubit in either ground or excited state).
     Arguments:
         channels (int) -- indices of channels to create readout pulses for
@@ -837,13 +839,13 @@ def sequence_multiplexed_readout_non_simu(
     phases = np.zeros(10)
     deltas_amplitude = np.array([0.02, 0.01, -0.01, 0.02, -0.012, 0.0, 0.02, -0.012, 0.06, 0.03])
     deltas_phase = np.array([0.23, 0.31, 0.26, -0.171, 0.28, -0.31, 0.19, -0.21, 0.091, 0.29]) * np.pi/4
-    
+
     n_channels = len(channels)
     assert len(frequencies) >= max(channels), "Not enough readout frequencies specified!"
 
     if state is None:
         state = [0] * n_channels
-    
+
 #     for i, ch  in enumerate(channels):
 # #         if frequencies[ch] < 0:
 # #             frequencies[ch] = abs(frequencies[ch])
@@ -851,7 +853,7 @@ def sequence_multiplexed_readout_non_simu(
 #         if state[i]:
 #             amplitudes[ch] = amplitudes[ch] * (1 + deltas_amplitude[ch])
 #             phases[ch] += deltas_phase[ch]
-            
+
     # text snippet for the initialization of awg sequence
 
     awg_program_init = textwrap.dedent(
@@ -872,7 +874,7 @@ def sequence_multiplexed_readout_non_simu(
         wave w_gauss_fall = gauss(2*fall, fall, fall/4);
         wave w_rise = cut(w_gauss_rise, 0, rise);
         wave w_fall = cut(w_gauss_fall, fall, 2*fall-1);
-        wave w_flat = rect(length, 1.0); 
+        wave w_flat = rect(length, 1.0);
         wave w_pad = zeros((totalLength-1)%16);
         // combine to total envelope
         wave readoutPulse = 1.0*join(w_rise, w_flat, w_fall, w_pad) + 0.0* w_gauss_rise;
@@ -968,12 +970,12 @@ def run_awg(daq, device):
 def awg_output_amplitude(daq, device, amplitudes):
     '''
     AWG output amplitude setting
-    
+
     device:          device ID
     amplitudes:      AWG output amplitude for ch1 and ch2, range from 0 to 1
     '''
     daq.setDouble('/{:s}/awgs/0/outputs/0/amplitude'.format(device), amplitudes)
-    daq.setDouble('/{:s}/awgs/0/outputs/1/amplitude'.format(device), amplitudes)  
+    daq.setDouble('/{:s}/awgs/0/outputs/1/amplitude'.format(device), amplitudes)
 
 def toggle_outputs(daq, device, channel=None):
     """
@@ -982,7 +984,7 @@ def toggle_outputs(daq, device, channel=None):
         daq (zhinst.ziDAQServer) -- Data Server Object
         device (String) -- device ID, e.g. "dev2266"
     Keyword Arguments:
-        channel (int) -- list of channels to be toggled (in 0, 1) 
+        channel (int) -- list of channels to be toggled (in 0, 1)
                             (default: None)
     """
 
@@ -1002,22 +1004,22 @@ def config_scope(daq, device, scope_length = 16384, scope_avg_weight = 1, scope_
     '''
     config scope
 
-    device:             device ID 
+    device:             device ID
     base_rate:          sampling rate
-    scope_length:       sampling points 
-    scope_avg_weight:   specify the averaging behaviour: 
+    scope_length:       sampling points
+    scope_avg_weight:   specify the averaging behaviour:
                         1:  weight, Averaging disabled.
                         >1: weight, Exponentially average the incoming scope records, updating the last scope record
                             in the history with the averaged record, see Section 3.11.5 of LabOneProgramming manual
     scope mode:     0:  Pass-through: scope segments assembled and returned unprocessed, non-interleaved.
-                    1:  Moving average: entire scope recording assembled, scaling applied, averager if enabled 
-                        (see averager/weight), data returned in float non-interleaved format. 
+                    1:  Moving average: entire scope recording assembled, scaling applied, averager if enabled
+                        (see averager/weight), data returned in float non-interleaved format.
                     2:  Reserved for future use (average n segments).
-                    3:  FFT, same as mode 1, except an FFT is applied to every segment of the scope recording 
-                        before averaging. See the fft/* parameters for FFT parameters.            
+                    3:  FFT, same as mode 1, except an FFT is applied to every segment of the scope recording
+                        before averaging. See the fft/* parameters for FFT parameters.
     '''
-    
-    
+
+
     scope = daq.scopeModule()
     daq.setInt(f'/{device:s}/scopes/0/channel', 3)# 1: ch1; 2(DIG):ch2; 3: ch1 and ch2(DIG)
     daq.setInt(f'/{device:s}/scopes/0/channels/0/inputselect', input_sigs[0]) # 0: sigin 1; 1: sigin 2
@@ -1066,26 +1068,26 @@ def init_scope(daq,device):
 def restart_avg_scope(scope):
     '''
     Set to 1 to reset the averager. The module sets averager/restart back to 0 automatically
-    
+
     scope:     scope ID
     '''
     scope.set('scopeModule/averager/restart', 1)
 
-def enable_scope(daq, device, enable = 1):   
+def enable_scope(daq, device, enable = 1):
     '''
     Enable/disable scope
-    
+
     daq:             device daq
-    device:          device ID 
+    device:          device ID
     enable:    0:    disable scope
                1:    enable scope
     '''
     daq.setInt('/%s/scopes/0/enable' % device, enable)
 
-def subscrib_scope(scope, device):  
+def subscrib_scope(scope, device):
     '''
-    subscrib scope 
-    
+    subscrib scope
+
     scope:           scope ID
     device:          device ID
     '''
@@ -1093,40 +1095,40 @@ def subscrib_scope(scope, device):
 
 def execute_scope(scope):
     '''
-    execute scope 
-    
+    execute scope
+
     scope:           scope ID
     '''
-    scope.execute() 
+    scope.execute()
 
 def scope_progress(scope):
     '''
     scope progress
-    
+
     scope:           scope ID
     '''
     return scope.progress()
-    
+
 def read_scope(scope):
     '''
     read scope
-    
+
     scope:           scope ID
     '''
     return scope.read()
-    
+
 def finish_scope(scope):
     '''
-    finish scope 
-    
+    finish scope
+
     scope:           scope ID
     '''
     scope.finish()
 
-def restart_and_execute_scope(scope, daq, device):   
+def restart_and_execute_scope(scope, daq, device):
     '''
-    restart and execute scope 
-    
+    restart and execute scope
+
     scope:           scope ID
     device:          device ID
     '''
@@ -1139,39 +1141,39 @@ def restart_and_execute_scope(scope, daq, device):
         result = scope.read()
     spec = result['%s' % device]['scopes']['0']['wave'][0][0]['wave'][0]
     scope.finish()
-    
+
     return spec
 
 def do_plot1d(x_values, sweep_data, paths, readout_length, save_fig = 0):
     '''
     plot 1D data
-    x_values:           x data 
-    sweep_data:         data from device 
-    paths:              data paths 
-    readout_length:     length of readout in second 
-    save_fig        0:  do not save 
-                    1:  do save 
+    x_values:           x data
+    sweep_data:         data from device
+    paths:              data paths
+    readout_length:     length of readout in second
+    save_fig        0:  do not save
+                    1:  do save
     '''
-    
+
     y1label = 'Amplitude (V)'
     y2label = 'Phase (deg)'
     unwrap = 0
-    
+
     if np.floor(x_values[0]/1e9) >= 1:
         x_values =  x_values/1e9
         xlabel = 'Frequency (GHz)'
     else:
         x_values =  x_values/1e6
-        xlabel = 'Frequency (MHz)'            
-        
-    
+        xlabel = 'Frequency (MHz)'
+
+
     base_rate = 1.8e9
     data_real = sweep_data[paths[0]]
     data_img  = sweep_data[paths[1]]
     data_cmpl = data_real+1j*data_img
     # plot
     fig, (ax1,ax2) = plt.subplots(nrows=2, sharex = True)
-    
+
     ax1.set_ylabel(y1label)
 #    ax1.set_xlabel(xlabel)
     ax1.semilogy(x_values, np.abs(data_cmpl), '-o', markersize = 3, c='C0')
@@ -1187,21 +1189,21 @@ def do_plot1d(x_values, sweep_data, paths, readout_length, save_fig = 0):
     fig.align_ylabels([ax1,ax2])
 #    fig.set_tight_layout(True)
     plt.show()
-#     fig.canvas.manager.window.move(0, 500) 
+#     fig.canvas.manager.window.move(0, 500)
     if save_fig == 1:
         plt.savefig("spectroscopy "+ time.ctime(time.time()).replace(":","-") )
-    
+
 def do_plot2d(P1_values, P2_values, sweep_data_2D, paths, readout_length, P2_name, save_fig = 0):
-    
-    '''  
-    P1_values:           P1 data 
-    P2_valeus:           P2 data 
-    sweep_data_2D:       measurement data 
-    paths:               data paths 
-    readout_length:      readout length in second 
-    P2_ name:            P2 parameter name 
-    save_fig:     0:     do not save 
-                  1:     do save 
+
+    '''
+    P1_values:           P1 data
+    P2_valeus:           P2 data
+    sweep_data_2D:       measurement data
+    paths:               data paths
+    readout_length:      readout length in second
+    P2_ name:            P2 parameter name
+    save_fig:     0:     do not save
+                  1:     do save
     '''
     y1label = 'Amplitude (V)'
     y2label = 'Phase (deg)'
@@ -1212,8 +1214,8 @@ def do_plot2d(P1_values, P2_values, sweep_data_2D, paths, readout_length, P2_nam
         xlabel = 'Frequency (GHz)'
     else:
         P1_values =  P1_values/1e6
-        xlabel = 'Frequency (MHz)'            
-        
+        xlabel = 'Frequency (MHz)'
+
     base_rate=1.8e9
     data_cmpl = (sweep_data_2D[paths[0]] + 1j*sweep_data_2D[paths[1]])/(readout_length*base_rate)
     fig, (ax1,ax2) = plt.subplots(nrows=2, sharex=True)
@@ -1233,25 +1235,25 @@ def do_plot2d(P1_values, P2_values, sweep_data_2D, paths, readout_length, P2_nam
     fig.align_ylabels([ax1,ax2])
     fig.set_tight_layout(True)
     plt.show()
-#     fig.canvas.manager.window.move(0, 500) 
-    
+#     fig.canvas.manager.window.move(0, 500)
+
     if save_fig == 1:
         plt.savefig("spectroscopy "+ time.ctime(time.time()).replace(":","-") )
-        
-        
-    #================================================================  
+
+
+    #================================================================
     # Plotting 2D data and saving figures
-    
+
     if P2_name=='amplitude_scale_uhf':
-        x_label='Amplitude scale of UHFQA'  
+        x_label='Amplitude scale of UHFQA'
     elif P2_name == 'amplitude_hd' or P2_name == 'amplitude_sine':
         x_label='Amplitude of HDAWG'
     elif P2_name =='current':
         x_label='Current (A)'
     elif P2_name == 'LO_power':
-        x_label='LO power (dBm)'    
+        x_label='LO power (dBm)'
 
-    
+
     fig, (ax1,ax2) = plt.subplots(nrows=2, sharex=True)
     x_values=np.zeros(P2_values.size+1)
     x_values[0]=P2_values[0]/2
@@ -1261,7 +1263,7 @@ def do_plot2d(P1_values, P2_values, sweep_data_2D, paths, readout_length, P2_nam
     y_values=P1_values
 
     XX, YY = np.meshgrid(x_values,y_values)
-    AMP=np.abs(data_cmpl)#.transpose()    
+    AMP=np.abs(data_cmpl)#.transpose()
     z_amp=np.zeros([y_values.size,x_values.size])
     z_amp[:,0:-1]=AMP
     z_amp_min=np.min(z_amp)
@@ -1272,8 +1274,8 @@ def do_plot2d(P1_values, P2_values, sweep_data_2D, paths, readout_length, P2_nam
     plt.tight_layout()
 
     fig.colorbar(c1, ax=ax1)
-    
-    PHA=phase#.transpose()#np.angle(data_cmpl).transpose()  
+
+    PHA=phase#.transpose()#np.angle(data_cmpl).transpose()
     z_pha=np.zeros([y_values.size,x_values.size])
     z_pha[:,0:-1]=PHA
     z_pha_min=np.min(z_pha)
@@ -1283,7 +1285,7 @@ def do_plot2d(P1_values, P2_values, sweep_data_2D, paths, readout_length, P2_nam
     ax2.set_ylabel(xlabel)
     ax2.set_xlabel(x_label)
     ax2.set_title('Phase')
-    fig.colorbar(c2, ax=ax2)  
+    fig.colorbar(c2, ax=ax2)
     fig.align_ylabels([ax1,ax2])
     plt.tight_layout()
     if save_fig == 1:
@@ -1300,38 +1302,38 @@ def extract_freq(t_vector,y_vector,dt):
     # print(index_max)
     f = xf[index_max]
     # plt.plot(xf,psd)
-    
+
     return f
 
 def pulse_plot1d(sequence,dt, qubitDriveFreq , amplitude_hd,x_vector,y_vector, AC_pars=[0,0],RT_pars=[0,0], fitting = 1, save_fig = 0,iteration=1):
     '''
-    plot 1D pulse experiment data 
-    
+    plot 1D pulse experiment data
+
     sequence:          'Rabi', 'T1' or 'T2'
-    complex_amplitude:  complex amplitude from the measurement 
-    x_vector:           x data 
+    complex_amplitude:  complex amplitude from the measurement
+    x_vector:           x data
     fitting:     0:     do not fit
                  1:     do fit
-    save_fig:    0:     do not save 
-                 1:     do save     
+    save_fig:    0:     do not save
+                 1:     do save
     '''
     x_vector = x_vector*1e6
     abs_camplitude = np.abs(y_vector*1e3)
     # phase_camplitude = np.angle(complex_amplitude*1e3)
-     
+
     def rabi(x, amp,period,phase,offset):
         y = amp*np.cos(2*np.pi*x/period+phase)+offset
         return y
     def ramsey(x,amp,f,phase,tau,offset):
         y = amp*np.cos(2*np.pi*f*x+phase)*np.exp(-x/tau)+offset
         return y
-    
+
     if fitting == 1:
         if sequence == "rabi":
             fig = plt.figure()
             ax = fig.add_subplot(111)
             ax.plot(x_vector, abs_camplitude, '-o', markersize = 3, c='C0')
-            ax.set_ylabel('Digitizer Voltage (mV)') 
+            ax.set_ylabel('Digitizer Voltage (mV)')
             ax.set_xlabel('Pulse Duration ($\mu$s)')
             amp = (max(abs_camplitude)-min(abs_camplitude))/2
             offset = np.mean(abs_camplitude)
@@ -1350,7 +1352,7 @@ def pulse_plot1d(sequence,dt, qubitDriveFreq , amplitude_hd,x_vector,y_vector, A
             fig = plt.figure()
             ax = fig.add_subplot(111)
             ax.plot(x_vector[1:], abs_camplitude[1:], '-o', markersize = 3, c='C0')
-            ax.set_ylabel('Digitizer Voltage (mV)') 
+            ax.set_ylabel('Digitizer Voltage (mV)')
             ax.set_xlabel('Pulse Separation ($\mu$s)')
             amp = (max(abs_camplitude)-min(abs_camplitude))/2
             offset = np.mean(abs_camplitude)
@@ -1370,8 +1372,8 @@ def pulse_plot1d(sequence,dt, qubitDriveFreq , amplitude_hd,x_vector,y_vector, A
                 return best_vals[1],best_vals[3]
             except:
                 print('fitting failed')
-        
-        
+
+
         if sequence == ("T1" or "T2"):
             amp0 = abs_camplitude[0] - abs_camplitude[-1]
             init_vals = [0,1,amp0,0]
@@ -1395,33 +1397,33 @@ def pulse_plot1d(sequence,dt, qubitDriveFreq , amplitude_hd,x_vector,y_vector, A
         elif sequence[3] == 'H':
             ax1.set_title('T2, Hanh echo')
         elif sequence[3] == 'C':
-            ax1.set_title('T2, CPMG')           
+            ax1.set_title('T2, CPMG')
         x_vector=x_vector*1e6
-        
-    
+
+
     # ax2.set_ylabel('Phase (deg)')
-    # ax2.plot(x_vector, phase_camplitude*180/pi,'-o', markersize = 3,  c='C1')    
+    # ax2.plot(x_vector, phase_camplitude*180/pi,'-o', markersize = 3,  c='C1')
     # fig.set_tight_layout(True)
     # fig.align_ylabels([ax1,ax2])
     if save_fig == 1:
         plt.savefig("pulsed " + sequence + " "+ time.ctime(time.time()).replace(":","-") )
-        
-    
+
+
 
 def set_integration_weights(daq, device,weights,channel,quadrature="real",demod_frequency=None):
     """
-    Sets the integration weights of the UHFQA. The input signals 
+    Sets the integration weights of the UHFQA. The input signals
     are multiplied with the integrtion weights for each channel.
     Arguments:
         daq (zhinst.ziDAQServer) -- Data Server Object
         device (String) -- device ID, e.g. "dev2266"
-        weights (double) -- list of double describing the integration 
+        weights (double) -- list of double describing the integration
                               weights to be set, max. length is 4096
-        channel (int) -- index of channel to set weights of 
+        channel (int) -- index of channel to set weights of
     Keyword Arguments:
-        quadrature (str) -- quadrature of weights to be set, 
+        quadrature (str) -- quadrature of weights to be set,
                             either 'imag' or 'real' (default: 'real')
-        demod_frequency (double) -- frequency for demodulation 
+        demod_frequency (double) -- frequency for demodulation
                                     (default: None)
     """
 
@@ -1457,7 +1459,7 @@ def set_integration_weights(daq, device,weights,channel,quadrature="real",demod_
         f"/{device}/qas/0/integration/weights/{channel}/{quadrature}",
         np.zeros(4096),
     )
-    # set 
+    # set
     daq.setInt(f"/{device}/qas/0/integration/length", integration_length)
     daq.setVector(
         f"/{device}/qas/0/integration/weights/{channel}/{quadrature}",
@@ -1473,13 +1475,13 @@ def generate_demod_weights(length, frequency, samplingRate=1.8e9, plot=False, ph
 
 def reset_integration_weights(daq, device, channels=range(10)):
     """
-    Resets the integration weights of the UHFQA to all zeros. 
+    Resets the integration weights of the UHFQA to all zeros.
     If no channel specified all are reset.
     Arguments:
         daq (zhinst.ziDAQServer) -- Data Server Object
         device (String) -- device ID, e.g. "dev2266"
     Keyword Arguments:
-        channels (int) --  list of indeces of channels to be reset 
+        channels (int) --  list of indeces of channels to be reset
                              (default: range(10))
     """
 
@@ -1504,8 +1506,8 @@ def optimal_integration_weights(
     delay=None,
 ):
     """
-    Sets the optimal integration weights for specified channel. 
-    Measures IQ traces for channel being in ground/excited state 
+    Sets the optimal integration weights for specified channel.
+    Measures IQ traces for channel being in ground/excited state
     and takes difference as optimal weights.
     Arguments:
         daq (zhinst.ziDAQServer) -- Data Server Object
@@ -1515,11 +1517,11 @@ def optimal_integration_weights(
         frequencies (float) -- list of readout frequencies for all channels
     Keyword Arguments:
         plot (bool) -- if set, detailed plots are shown (default: False)
-        delay (int) -- number of samples at the beginning of weights array 
+        delay (int) -- number of samples at the beginning of weights array
                        that are set to 0 (default: None)
     """
 
-    
+
     daq.flush()
     monitor_length = daq.getInt(f"/{device}/qas/0/monitor/length")
     monitor_averages = daq.getInt(f"/{device}/qas/0/monitor/averages")
@@ -1531,11 +1533,11 @@ def optimal_integration_weights(
     ]
 
     monitor_list = []
-    
+
     ground_state = [0]
     excited_state = [1]
-    
-    for state in [ground_state, excited_state]: 
+
+    for state in [ground_state, excited_state]:
         print(f"Channel {channel} in state |{','.join(str(num) for num in state)}>", flush=True)
         # set up AWG sequence program
         # readout pulse for only single channel!
@@ -1614,7 +1616,7 @@ def optimal_integration_weights(
         ax3.set_title("Integration weights for I/Q", position=[0.15, 0.7])
         ax3.set_xlim([0, monitor_length])
         ax3.set_xlabel("Samples")
-        
+
         plt.show()
         plt.tight_layout()
 
@@ -1634,22 +1636,22 @@ def write_crosstalk_matrix(daq, device, matrix):
     return
 
     '''
-    plot 1D pulse experiment data 
-    
+    plot 1D pulse experiment data
+
     sequence:          'Rabi', 'T1' or 'T2'
-    complex_amplitude:  complex amplitude from the measurement 
-    x_vector:           x data 
+    complex_amplitude:  complex amplitude from the measurement
+    x_vector:           x data
     fitting:     0:     do not fit
                  1:     do fit
-    save_fig:    0:     do not save 
-                 1:     do save     
+    save_fig:    0:     do not save
+                 1:     do save
     '''
-    
+
     abs_camplitude = np.abs(complex_amplitude)
     phase_camplitude = np.angle(complex_amplitude)
 
     fig, (ax1,ax2) = plt.subplots(nrows=2, sharex=True)
-    ax1.set_ylabel('Amplitude (V)')  
+    ax1.set_ylabel('Amplitude (V)')
     def rabi(x, x0, amp, offset):
         y = amp*(1-np.cos(pi*(x/x0)))/2+offset
         return y
@@ -1658,7 +1660,7 @@ def write_crosstalk_matrix(daq, device, matrix):
             best_vals, covar = scy.optimize.curve_fit(rabi, x_vector, abs_camplitude)
             ax1.plot(x_vector,rabi(x_vector, best_vals[0], best_vals[1], best_vals[2]))
             print('amplitude for pi pulse is ', best_vals[0])
-    
+
         if sequence == ("T1" or "T2"):
             amp0 = abs_camplitude[0] - abs_camplitude[-1]
             init_vals = [0,1,amp0,0]
@@ -1666,22 +1668,22 @@ def write_crosstalk_matrix(daq, device, matrix):
             ax1.plot(x_vector, T1(x_vector,best_vals[0],best_vals[1], best_vals[2], best_vals[3]))
             fit_para_str = sequence + ' time is ' + best_vals[1]
             print(fit_para_str)
-    
-    
+
+
     if sequence == "Rabi":
         label = 'Relative pulse amplitude'
 #         ax1.set_xlabel(label)
         ax2.set_xlabel(label)
         ax1.set_title('Rabi oscillation with dA')
         best_vals, covar = scy.optimize.curve_fit(rabi, x_vector, abs_camplitude)
-        
+
     if sequence == 'Rabi_t':
         label = 'Pulse duration (ns)'
 #         ax1.set_xlabel(label)
         ax2.set_xlabel(label)
         ax1.set_title('Rabi oscillation with dt')
-        x_vector = x_vector*1e9      
-        
+        x_vector = x_vector*1e9
+
     if sequence == "T1":
         label = 'Pulse separation ($\mu$s)'
 #         ax1.set_xlabel(label)
@@ -1697,19 +1699,19 @@ def write_crosstalk_matrix(daq, device, matrix):
         elif sequence[3] == 'H':
             ax1.set_title('T2, Hanh echo')
         elif sequence[3] == 'C':
-            ax1.set_title('T2, CPMG')           
+            ax1.set_title('T2, CPMG')
         x_vector=x_vector*1e6
-        
+
     if sequence == 'Rabi_2p_t':
         label = 'Pulse duration (ns)'
 #         ax1.set_xlabel(label)
         ax2.set_xlabel(label)
         ax1.set_title('Rabi $\pi/2-\pi/2$ with dt')
-        x_vector = x_vector*1e9  
-        
+        x_vector = x_vector*1e9
+
     ax1.plot(x_vector, abs_camplitude, '-o', markersize = 3, c='C0')
     ax2.set_ylabel('Phase (deg)')
-    ax2.plot(x_vector, phase_camplitude*180/pi,'-o', markersize = 3,  c='C1')    
+    ax2.plot(x_vector, phase_camplitude*180/pi,'-o', markersize = 3,  c='C1')
     fig.set_tight_layout(True)
     fig.align_ylabels([ax1,ax2])
     if save_fig == 1:

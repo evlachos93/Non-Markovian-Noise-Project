@@ -140,7 +140,6 @@ def awg_seq(awg, device_awg='dev8233',fs=1.2e9, amplitude_hd = 1,nPoints= 200,nS
                             'T1':                   select SeqC codes for T1 measurement
                             'T2':                   select SeqC codes for T2 measurement
                             'reset qubit'           select SeqC codes for reset qubit
-                            'precompensation demo': select SeqC codes for precompensation demo
     measPeriod:             how long to wait between measurements
 
     '''

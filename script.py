@@ -46,7 +46,6 @@ import scipy as scy
 import plot_functions as pf
 import h5py
 from VISAdrivers.LabBrick_LMS_Wrapper import LabBrick_Synthesizer
-# import VISAdrivers.sc5511
 
 
 '''Instruments and connection'''
@@ -67,9 +66,9 @@ qubitLO.RF_ON()
 readoutLO.RF_ON()
 acStarkLO.setRFOn(bRFOn=True)
 
-qubitLO.set_freq(3.3303)
+qubitLO.set_freq(3.3315)
 readoutLO.set_freq(7.2586)
-acStarkLO.setFrequency(7.4086e9)
+acStarkLO.setFrequency(7.3586e9)
 
 '''Initialize connection with Zurich Instruments'''
 daq, device_qa = qa.create_api_sessions_uhf('dev2528', use_discovery= 1, ip='127.0.0.1')
@@ -145,17 +144,17 @@ iteration_rabi = int(latest_file[-7:-4].lstrip('0')) + 1
 
 options_rabi = {
     'sampling_rate':    2.4e9,
-    'qubitDriveFreq':   3.331e9,
+    'qubitDriveFreq':   3.33145e9,
     'integration_length':   2.3e-6,
     'cav_resp_time':    0.5e-6,
     'nAverages':        256,
     'stepSize':         3e-9,
-    'Tmax':             0.45e-6,
+    'Tmax':             0.85e-6,
     'amplitude_hd':     A_d,
     'sequence':         'rabi',
     'measPeriod':       300e-6,
     'AC_pars':          [0.3,0],
-    'AC_freq':          7.3186e9
+    'AC_freq':          7.3586e9
     }
 
 if options_rabi['AC_pars'] == 0:
@@ -185,14 +184,14 @@ list_of_files = glob.glob('E:\generalized-markovian-noise\%s\Ramsey\*.csv'%(meas
 latest_file = max(list_of_files, key=os.path.getctime)
 iteration_ramsey = int(latest_file[-7:-4].lstrip('0')) + 1
 
-detun = 0e6
+detun = -0.15e6
 
 
 options_ramsey = {
     'sampling_rate':    1.2e9,
-    'nAverages':        256,
-    'Tmax':             40e-6,
-    'stepSize':         100e-9,
+    'nAverages':        128,
+    'Tmax':             10e-6,
+    'stepSize':         40e-9,
     'integration_length':   2.3e-6,
     'cav_resp_time':    options_rabi['cav_resp_time'],
     'amplitude_hd':     A_d,
@@ -201,9 +200,9 @@ options_ramsey = {
     'qubitDriveFreq':   options_rabi['qubitDriveFreq']+detun,
     'sweep':            0,
     'pi2Width':         1/2*pi_pulse*1e-9,
-    'AC_pars':          [options_rabi['AC_pars'][0],0],
+    'AC_pars':          [options_rabi['AC_pars'][0],0.015],
     'AC_freq':          options_rabi['AC_freq'],
-    'RT_pars':          [0,0],
+    'RT_pars':          [0,0]
     }
 
 qubitLO.set_freq(options_ramsey['qubitDriveFreq']/1e9)
@@ -275,7 +274,7 @@ iteration_T1 = int(latest_file[-7:-4].lstrip('0')) + 1
 
 options_T1 = {
     'sampling_rate':    1.2e9,
-    'nAverages':        512,
+    'nAverages':        128,
     'Tmax':             75e-6,
     'stepSize':         1000e-9,
     'integration_length': 2.3e-6,
@@ -422,29 +421,36 @@ with open("E:\generalized-markovian-noise\%s_data_%03d.csv"%('ramsey',iteration_
 
 
 iteration_ramsey_sweep = 1
+
 '''------------------------------------------------------Ramsey Statistics---------------------------------------------------'''
 '''DESCRIPTION: Repeat Ramsey Measurement for a couple of hours to determine timescale of environmental fluctuations'''
-iteration_ramsey_statistics = 26
+try:
+
+    list_of_files = glob.glob('E:\generalized-markovian-noise\%s\Ramsey\ramsey_statistics\*.csv'%(meas_device))
+    latest_file = max(list_of_files, key=os.path.getctime)
+    iteration_ramsey_statistics = int(latest_file[-7:-4].lstrip('0')) + 1
+except:
+    iteration_ramsey_statistics = 1
+
 exp = 'ramsey statistics'
 options_ramsey_statistics = {
-    'nAverages':        1024,
+    'nAverages':        128,
     'Tmax':             options_ramsey['Tmax'],
     'stepSize':         options_ramsey['stepSize'],
-    'integration_length': 2e-6,
+    'integration_length': 2.3e-6,
     'cav_resp_time':    options_ramsey['cav_resp_time'],
     'amplitude_hd':     A_d,
     'sequence':         'ramsey',
-    'channel':          0,
     'nSteps':           nPoints,
-    'measPeriod':       200e-6,
+    'measPeriod':       options_ramsey['measPeriod'],
     'qubitDriveFreq':   options_ramsey['qubitDriveFreq'],
     'sweep':            0,
-    'pi2Width':         1/2*pi_pulse*1e-9,
+    'pi2Width':         options_ramsey['pi2Width'],
     'AC_pars':          options_ramsey['AC_pars'],
     'RT_pars':          [0,0],
 }
 
-nReps = 50
+nReps = 500
 rep = np.arange(nReps)
 detun_arr = np.zeros(nReps)
 T_phi_arr = np.zeros(nReps)
@@ -454,8 +460,8 @@ plot = 1
 
 start = time.time()
 for i in range(nReps):
-    I,Q,nPoints = expf.pulse(daq,awg,qubitLO,setup=[1,1,1],**options_ramsey_statistics)
-    detun_arr[i],T_phi_arr[i],error = pf.pulse_plot1d(sequence='ramsey',x_vector=t, y_vector=I,plot=plot,dt=options_ramsey_statistics['Tmax']*1e6/nPoints,qubitDriveFreq=options_ramsey_statistics['qubitDriveFreq'],amplitude_hd=options_ramsey_statistics['amplitude_hd'],fitting=1,AC_pars=options_ramsey_statistics['AC_pars'],RT_pars=options_ramsey_statistics['RT_pars'],pi2Width=options_ramsey_statistics['pi2Width'],iteration=iteration_ramsey_statistics)
+    t,I,Q,nPoints = expf.pulse(daq,awg,setup=[1,1,1],**options_ramsey_statistics)
+    detun_arr[i],T_phi_arr[i],error = pf.pulse_plot1d(x_vector=t, y_vector=I,plot=plot,dt=options_ramsey_statistics['Tmax']*1e6/nPoints,**options_ramsey_statistics, iteration=iteration_ramsey_statistics)
     error_arr[i] = max(error)
     now[i] = time.time()  - start
 
@@ -478,7 +484,7 @@ time_arr = 14.5*np.arange(len(now))
 fig, (ax1,ax2) = plt.subplots(2,sharex=True)
 ax1.plot(time_arr,np.abs(detun_arr), '-o', markersize = 3, c='C0')
 # ax1.plot(rep_clean,np.abs(detun_arr_clean), '-o', markersize = 3, c='C0')
-ax1.set_ylim((0,3))
+ax1.set_ylim((0,1))
 ax1.set_ylabel('$\Delta$ (MHz)')
 fig.suptitle('Ramsey Statistics %03d'%(iteration_ramsey_statistics))
 ax2.plot(time_arr,T_phi_arr, '-o', markersize = 3, c='C0')
@@ -486,15 +492,15 @@ ax2.plot(time_arr,T_phi_arr, '-o', markersize = 3, c='C0')
 # ax2.plot(rep_clean,T_phi_arr_clean, '-o', markersize = 3, c='C0')
 ax2.set_xlabel('time (sec)')
 ax2.set_ylabel('$T_{\phi} (\mu s)$')
-ax2.set_ylim((0,2))
+ax2.set_ylim((0,5))
 textstr = "$\omega_d = 2\pi\\times%.4f$ GHz" %(options_ramsey_statistics['qubitDriveFreq']*1e-9)
 plt.gcf().text(1, 0.25, textstr, fontsize=14)
 
 # save data
-exp_pars = [options_ramsey_statistics['amplitude_hd'],options_ramsey_statistics['qubitDriveFreq'],options_ramsey_statistics['AC_pars']]
-with open("E:\\generalized-markovian-noise\\ramsey\\ramsey_statistics\\%s_data_%03d.csv"%('ramsey_statistics',iteration_ramsey_statistics),"w",newline="") as datafile:
+with open("E:\\generalized-markovian-noise\\%s\\ramsey\\ramsey_statistics\\%s_data_%03d.csv"%(meas_device,'ramsey_statistics',iteration_ramsey_statistics),"w",newline="") as datafile:
     writer = csv.writer(datafile)
-    writer.writerow(exp_pars)
+    writer.writerow(options_ramsey_statistics.keys())
+    writer.writerow(options_ramsey_statistics.values())
     writer.writerow(detun_arr)
     writer.writerow(T_phi_arr)
     writer.writerow(now)
@@ -637,6 +643,7 @@ with open("E:\\generalized-markovian-noise\\T1\\T1_statistics\\%s_data_%03d.csv"
     writer.writerow(error_arr)
 
 iteration_T1_statistics += 1
+
 '''---------------------------------------Ramsey Parameter Sweep for Random Telegraph Noise-------------------------------------------'''
 
 '''DESCRIPTION:
@@ -645,10 +652,17 @@ iteration_T1_statistics += 1
     3. Every 10 instances, do ramsey without RTN to get statistics for the bare T2*
     4. Repeat for every parameter point
 '''
+try:
 
-sweep_count = 24
-numRealizations = 128
-b_measurements = 4
+    list_of_files = glob.glob('E:\generalized-markovian-noise\%s\sweep_data\*.csv'%(meas_device))
+    latest_file = max(list_of_files, key=os.path.getctime)
+    sweep_count = int(latest_file[-7:-4].lstrip('0')) + 1
+except:
+    sweep_count = 1
+
+
+numRealizations = 8
+b_measurements = 2
 numIterations = numRealizations + b_measurements
 interval = int(numRealizations/b_measurements) # how often to take background data without generalized markovian noise
 B0 = np.linspace(0.01,0.3,10) #the relationship between B0 and frequency of oscillations is Omega_R = 25 MHz * A_q
@@ -669,9 +683,10 @@ T2_arr = np.zeros((len(B0),len(tau),numRealizations),dtype=float)
 data1 = np.zeros((len(B0),len(tau),numRealizations,675),dtype=float)
 data2 = np.zeros((len(B0),len(tau),numRealizations,675),dtype=float)
 error_arr = np.zeros((len(B0),len(tau),numRealizations),dtype=float)
+
 # generate noise instances
 Tmax = 4.5e-6
-nPoints = expf.roundToBase(2.4e9*Tmax,16)
+nPoints = expf.roundToBase(1.2e9*Tmax,16)
 str_gen_noise = time.time()
 expf.gen_noise_realizations(noiseType='RTN',par1_arr=tau,par2_arr=[0],numRealizations=numRealizations,nPoints=nPoints,T_max=Tmax,sweep_count=sweep_count)
 end_gen_noise = time.time()
@@ -679,47 +694,28 @@ print('Generating noise realizations took: %.1f s' %(end_gen_noise-str_gen_noise
 sweep_name = 'sweep_%03d'%(sweep_count)
 parent_dir = 'E:\\generalized-markovian-noise\\sweep_data\\'
 path = os.path.join(parent_dir,sweep_name)
+plot_path = os.path.join(path,'plot_images')
 os.mkdir(path)
 plt.close('all')
 
 # sweep ramsey
 optionsRamsey_par_sweep = {
-    'sampling_rate':    2.4e9,
-    'nAverages':        2048,
+    'sampling_rate':    1.2e9,
+    'nAverages':        256,
     'Tmax':             3e-6,
-    'integration_length':   2.0e-6,
-    'cav_resp_time':    0.5e-6,
     'stepSize':         100e-9,
     'pi2Width':         1/2*pi_pulse*1e-9,
     'amplitude_hd':     A_d,
     'sequence':         'ramsey',
-    'channel':          0,
     'sweep':            1,
-    'measPeriod':       150e-6,
+    'measPeriod':       300e-6,
     'qubitDriveFreq':   3.8704e9,
-    'AC_pars':          [0.6,0.05],
+    'AC_pars':          [0.3,0.015],
     'RT_pars':          [0,0]
-    }
-
-options_rabi = {
-    'sampling_rate':    2.4e9,
-    'qubitDriveFreq':   3.8704e9,
-    'nAverages':        1024,
-    'integration_length': 2.0e-6,
-    'cav_resp_time':    0.5e-6,
-    'Tmax':             0.4e-6,
-    'stepSize':         2e-9,
-    'amplitude_hd':     A_d,
-    'sequence':         'rabi',
-    'channel':          0,
-    'measPeriod':       200e-6,
-    'AC_pars':          [0.6,0]
     }
 
 
 plot = 1
-header = ['Amplitude (V)','Drive Freq (Hz)','AC Stark Amplitude (V)','AC stark Noise Amplitude (V)']
-exp_pars = [optionsRamsey_par_sweep['amplitude_hd'],optionsRamsey_par_sweep['qubitDriveFreq'],optionsRamsey_par_sweep['AC_pars'][0],optionsRamsey_par_sweep['AC_pars'][1]]
 start_sweep = time.time()
 # generate data
 for i in range(len(B0)):
@@ -730,22 +726,25 @@ for i in range(len(B0)):
         b = 0 # keeps track of noisy measurements
         k = 0
         #calibrate pi_pulse
-        t,I,Q,nPoints = expf.pulse(daq,awg,qubitLO,setup=[0,1,0],**options_rabi)
-        pi_pulse,error = pf.pulse_plot1d(sequence='rabi',x_vector=t, y_vector=I,plot=1,dt=options_rabi['Tmax']*1e6/nPoints,qubitDriveFreq=options_rabi['qubitDriveFreq'],amplitude_hd=options_rabi['amplitude_hd'],AC_pars=options_rabi['AC_pars'])
+        t,I,Q,nPoints = expf.pulse(daq,awg,setup=[0,1,0],**options_rabi)
+        pi_pulse,error = pf.pulse_plot1d(x_vector=t, y_vector=I,plot=1,dt=options_rabi['Tmax']*1e6/nPoints,**options_rabi)
         print('Next parameter point: B_0 = %.2f V and tau = %.2f microseconds' %(B0[i],tau[j]))
         while k < numIterations:
             if k % (interval + 1) == 0 and a != b_measurements:
                 # get background T2* every 10 or so measurements
-                optionsRamsey_par_sweep['nAverages'] = 1024
+                optionsRamsey_par_sweep['nAverages'] = 256
                 optionsRamsey_par_sweep['RT_pars'] = [0,0]
                 optionsRamsey_par_sweep['Tmax'] = 3e-6
                 optionsRamsey_par_sweep['stepSize'] = 26e-9
                 print('----------------------------------\nExecuting background Ramsey measurement')
-                t2,I,Q,nPoints = expf.pulse(daq,awg,qubitLO,setup=[0,1,0],sweep_name=sweep_name,**optionsRamsey_par_sweep)
+                t2,I,Q,nPoints = expf.pulse(daq,awg,setup=[0,1,0],sweep_name=sweep_name,**optionsRamsey_par_sweep)
                 b_data1[i,j,a,:] = I
                 b_data2[i,j,a,:] = Q
-                detuning[i,j,a],T_b[i,j,a],error = pf.pulse_plot1d(sequence='ramsey',x_vector=t2, y_vector=I,plot=plot,dt=optionsRamsey_par_sweep['Tmax']*1e6/nPoints,qubitDriveFreq=optionsRamsey_par_sweep['qubitDriveFreq'],amplitude_hd=optionsRamsey_par_sweep['amplitude_hd'],fitting=1,AC_pars=optionsRamsey_par_sweep['AC_pars'],RT_pars=optionsRamsey_par_sweep['RT_pars'],pi2Width=optionsRamsey_par_sweep['pi2Width'])
+                detuning[i,j,a],T_b[i,j,a],error = pf.pulse_plot1d(x_vector=t2, y_vector=I,plot=plot,dt=optionsRamsey_par_sweep['Tmax']*1e6/nPoints,**optionsRamsey_par_sweep)
                 error_b[i,j,a] = max(error)
+                # save and then clear plot
+                plt.savefig(plot_path+'fig_%03d'%(a))
+                plt.clf()
                 a += 1
                 print('End measurement\n----------------------------------' )
             else:
@@ -755,25 +754,28 @@ for i in range(len(B0)):
                     setup = [2,1,1]
                 optionsRamsey_par_sweep['RT_pars'] = [B0[i],tau[j]]
                 optionsRamsey_par_sweep['Tmax'] = 4.5e-6
-                optionsRamsey_par_sweep['nAverages'] = 1024
+                optionsRamsey_par_sweep['nAverages'] = 256
                 optionsRamsey_par_sweep['stepSize'] = 6e-9
                 print('----------------------------------\nStart %s measurement' %("ramsey"))
                 print('Implementing noise realization %d' %(b+1))
-                t1,I,Q,nPoints = expf.pulse(daq,awg,qubitLO,setup=setup,sweep_name=sweep_name,instance=b,**optionsRamsey_par_sweep)
+                t1,I,Q,nPoints = expf.pulse(daq,awg,setup=setup,sweep_name=sweep_name,instance=b,**optionsRamsey_par_sweep)
                 data1[i,j,b,0:nPoints] = I
                 data2[i,j,b,0:nPoints] = Q
-                ram_freq_arr[i,j,b],T2_arr[i,j,b],error = pf.pulse_plot1d(sequence='ramsey',x_vector=t1, y_vector=I,plot=plot,dt=optionsRamsey_par_sweep['Tmax']*1e6/nPoints,qubitDriveFreq=optionsRamsey_par_sweep['qubitDriveFreq'],amplitude_hd=optionsRamsey_par_sweep['amplitude_hd'],fitting=1,AC_pars=optionsRamsey_par_sweep['AC_pars'],RT_pars=optionsRamsey_par_sweep['RT_pars'],pi2Width=optionsRamsey_par_sweep['pi2Width'])
+                ram_freq_arr[i,j,b],T2_arr[i,j,b],error = pf.pulse_plot1d(x_vector=t1, y_vector=I,plot=plot,dt=optionsRamsey_par_sweep['Tmax']*1e6/nPoints,**optionsRamsey_par_sweep)
                 error_arr[i,j,b] = max(error)
+                # save and then clear plot
+                plt.savefig(plot_path+'fig_%03d'%(b))
+                plt.clf()
                 b += 1
                 print('End measurement\n----------------------------------' )
             k += 1
 
         # save data after each parameter sweep point
         filename = 'RTN_B0_%d_mV_tau_%d_ns' %(round(B0[i]*1e3),round(tau[j]*1e3))
-        with open("E:\generalized-markovian-noise\sweep_data\%s\data_%s.csv"%(sweep_name,filename),"w",newline="") as datafile:
+        with open("E:\generalized-markovian-noise\%s\sweep_data\%s\data_%s.csv"%(meas_device,sweep_name,filename),"w",newline="") as datafile:
             writer = csv.writer(datafile)
-            writer.writerow(header)
-            writer.writerow(exp_pars)
+            writer.writerow(optionsRamsey_par_sweep.keys())
+            writer.writerow(optionsRamsey_par_sweep.values())
             writer.writerow(['Background Time Data'])
             writer.writerow(t2)
             writer.writerow(['Time Data'])
