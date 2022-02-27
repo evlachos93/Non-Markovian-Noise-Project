@@ -158,7 +158,7 @@ def pulse_plot1d(sequence,x_vector,y_vector,dt=0.01,qubitDriveFreq=3.8e9,amplitu
             ax.set_ylabel('Digitizer Voltage (mV)')
             ax.set_xlabel('Pulse Separation ($\mu$s)')
             ax.plot(x_vector,ramsey(x_vector, best_vals[0], best_vals[1], best_vals[2],best_vals[3],best_vals[4]),'r')
-            textstr = '$T_{\pi/2}$=%.1f ns\n$\omega_d$ = %.6f GHz\n$A_d$ = %.2f V\n$\Delta$=%.3f MHz\n$T_2^*$=%.2f $\mu$s\n$\mu$ = %.3f V\n$\omega_{AC}$ = %.4f GHz\n$\sigma$ = %.3f V\n$B_0$ = %.2f V\n$\\tau_k$ = %.2f $\mu s$\n$\hatn$ = %d'%(pi2Width*1e9,qubitDriveFreq*1e-9,amplitude_hd,best_vals[1],best_vals[3],AC_pars[0],AC_freq*1e-9,AC_pars[1],RT_pars[0],RT_pars[1],nAverages)
+            textstr = '$T_{\pi/2}$=%.1f ns\n$\omega_d$ = %.6f GHz\n$A_d$ = %.3f V\n$\Delta$=%.3f MHz\n$T_2^*$=%.2f $\mu$s\n$\mu$ = %.3f V\n$\omega_{AC}$ = %.4f GHz\n$\sigma$ = %.3f V\n$B_0$ = %.4f V\n$\\tau_k$ = %.3f $\mu s$\n$\hatn$ = %d'%(pi2Width*1e9,qubitDriveFreq*1e-9,amplitude_hd,best_vals[1],best_vals[3],AC_pars[0],AC_freq*1e-9,AC_pars[1],RT_pars[0],RT_pars[1],nAverages)
             ax.set_title('Ramsey Measurement %03d' %(iteration))
             plt.gcf().text(0.95, 0.15, textstr, fontsize=14)
         elif sequence == "echo":

@@ -390,7 +390,7 @@ def spectroscopy(daq,device_qa,awg,device_awg,qubitLO=0,cav_resp_time=1e-6,integ
 
     return power_data,I_data,Q_data
 
-def pulse(daq,awg,channel=0,setup=[0,0,0],Tmax=0.3e-6,nSteps=61,nAverages=128,amplitude_hd=1,sequence='rabi',AC_pars=[0,0],stepSize=2e-9,\
+def pulse(daq,awg,setup=[0,0,0],Tmax=0.3e-6,nSteps=61,nAverages=128,amplitude_hd=1,sequence='rabi',AC_pars=[0,0],stepSize=2e-9,\
           RT_pars=[0,0],cav_resp_time=0.5e-6,piWidth_Y=0,AC_freq=5e-9,pipulse_position=20e-9,integration_length=2.3e-6,qubitDriveFreq=3.8135e9,run=1,pi2Width=0,sampling_rate=1.2e9,measPeriod=300e-6,sweep=0,sweep_name='sweep_001',instance=0):
 
 
@@ -467,52 +467,50 @@ def pulse(daq,awg,channel=0,setup=[0,0,0],Tmax=0.3e-6,nSteps=61,nAverages=128,am
     else:
         use_ct = 0
     print('Estimated Measurement Time: %d sec'%(calc_timeout(nAverages, measPeriod, stepSize, nSteps)))
+
     ct_awg = json.loads(daq.get(f"/{device_awg}/awgs/0/commandtable/data",flat=True)[f"/{device_awg}/awgs/0/commandtable/data"][0]['vector'])
-    if setup[0] == 0:
-        if use_ct == 1:
-            if ct_awg != ct:
-                print('Error! Invalid Command Table used for Measurement\nCommand Table Sent to AWG\n\n%s\n\nCommand Table in AWG\n\n%s'%(ct,ct_awg))
-                sys.exit()
+    if setup[0] == 0 and use_ct == 1:
+        if ct_awg != ct:
+            print('Error! Invalid Command Table used for Measurement\nCommand Table Sent to AWG\n\n%s\n\nCommand Table in AWG\n\n%s'%(ct,ct_awg))
+            sys.exit()
 
-    else:
-        result_length = nSteps
-        timeout = 2*nSteps*measPeriod*nAverages
-        sweep_data, paths = qa.create_sweep_data_dict(daq, device_qa)
+    result_length = nSteps
+    timeout = 2*nSteps*measPeriod*nAverages
+    sweep_data, paths = qa.create_sweep_data_dict(daq, device_qa)
 
-        qa.enable_awg(daq, device_qa,enable=1) # start the readout sequence
+    qa.enable_awg(daq, device_qa,enable=1) # start the readout sequence
 
-        qa.qa_result_enable(daq, device_qa)
+    qa.qa_result_enable(daq, device_qa)
 
-        # print('----------------------------------\nStart %s measurement' %(sequence))
-        # bt = time.time()
-        str_meas = time.time()
-        hd.enable_awg(awg,device_awg,enable=1,awgs=cores) #runs the drive sequence
-        data = qa.acquisition_poll(daq, paths, num_samples = result_length, timeout = timeout)
+    # print('----------------------------------\nStart %s measurement' %(sequence))
+    # bt = time.time()
+    str_meas = time.time()
+    hd.enable_awg(awg,device_awg,enable=1,awgs=cores) #runs the drive sequence
+    data = qa.acquisition_poll(daq, paths, num_samples = result_length, timeout = timeout)
 
-        for path, samples in data.items():
-            sweep_data[path] = np.append(sweep_data[path], samples)
+    for path, samples in data.items():
+        sweep_data[path] = np.append(sweep_data[path], samples)
 
-        qa.stop_result_unit(daq, device_qa, paths)
-        hd.enable_awg(awg, device_awg, enable = 0,awgs=cores)
-        qa.enable_awg(daq, device_qa, enable = 0)
-        end_meas = time.time()
-        print('\nmeasurement duration: %.1f s' %(end_meas-str_meas))
+    qa.stop_result_unit(daq, device_qa, paths)
+    hd.enable_awg(awg, device_awg, enable = 0,awgs=cores)
+    qa.enable_awg(daq, device_qa, enable = 0)
+    end_meas = time.time()
+    print('\nmeasurement duration: %.1f s' %(end_meas-str_meas))
 
-        data = sweep_data[paths[0]][0:result_length]/(integration_length*base_rate)
-        I = data.real
-        Q = data.imag
+    data = sweep_data[paths[0]][0:result_length]/(integration_length*base_rate)
+    I = data.real
+    Q = data.imag
 
         #Generate time array points
 
-        t = np.zeros(nSteps)
-        ct_awg = json.loads(daq.get(f"/{device_awg}/awgs/0/commandtable/data",flat=True)[f"/{device_awg}/awgs/0/commandtable/data"][0]['vector']) #
-        for i in range(nSteps):
-            t[i] = ct_awg['table'][i]['waveform']['length']/fs
-        if sequence=='echo':
-            t = 2*t
+    t = np.zeros(nSteps)
+    ct_awg = json.loads(daq.get(f"/{device_awg}/awgs/0/commandtable/data",flat=True)[f"/{device_awg}/awgs/0/commandtable/data"][0]['vector']) #
+    for i in range(nSteps):
+        t[i] = ct_awg['table'][i]['waveform']['length']/fs
+    if sequence=='echo':
+        t = 2*t
 
-        return t,I,Q,nSteps
-    # return I,Q,nSteps
+    return t,I,Q,nSteps
 
 def adapt_stepsize(B0):
     # need at least 10 points per period
@@ -557,7 +555,7 @@ def rabi_ramsey(daq,awg,qubitLO,qubitDriveFreq=3.8e9,AC_pars=[0,0],plot=1):
 
     return detuning,T_phi,error
 
-def calc_nSteps(sequence='ramsey',fsAWG=1.2e9,stepSize=10e-9,nPoints=1024,Tmax=5e-6,RT_pars=[0,0],piWidth_Y=0):
+def calc_nSteps(sequence='ramsey',fsAWG=1.2e9,stepSize=10e-9,Tmax=5e-6,RT_pars=[0,0],piWidth_Y=0):
     if sequence == 'rabi':
         base = 4
     else:
@@ -596,7 +594,7 @@ def roundToBase(nPoints,base=16):
 def pull_wfm(sweep_name,RT_pars,instance):
     tel_amp = RT_pars[0]
     tau = RT_pars[1]
-    path = "E:\\generalized-markovian-noise\\noise_instances\\%s"%(sweep_name)
+    path = "E:\\generalized-markovian-noise\\%s\\sweep_data\\ramsey\\%s\\noise_instances"%('CandleQubit_6',sweep_name)
     filename = 'RTN_tau_%d_ns.csv' %(round(tau*1e3))
     print(os.path.join(path,filename))
     with open(os.path.join(path,filename)) as waveform_file:
@@ -636,7 +634,7 @@ def create_echo_wfms(awg,fs=1.2e9,AC_pars=[0,0],RT_pars=[0,0],sweep_name='sweep_
     end = time.time()
     print('Generating echo Waveforms took %.1f' %(end-start))
 
-def create_wfm_file(AC_pars,RT_pars,nPoints,sweep,sweep_name,Tmax,instance,sequence="ramsey"):
+def create_wfm_file(AC_pars,RT_pars,nPoints,sweep,sweep_name,Tmax,instance,sequence="ramsey",meas_device='CandleQubit_6'):
 
     # create RTN noise or pull instance from file (only for parameter sweeps)
     if RT_pars[0]!=0:
@@ -645,7 +643,7 @@ def create_wfm_file(AC_pars,RT_pars,nPoints,sweep,sweep_name,Tmax,instance,seque
         if sweep == 0:
             qubit_free_evol = tel_amp * gen_tel_noise(nPoints, tau, dt=Tmax/nPoints)
         elif sweep == 1:
-            path = "E:\\generalized-markovian-noise\\noise_instances\\%s"%(sweep_name)
+            path = "E:\\generalized-markovian-noise\\%s\\sweep_data\\ramsey\\%s\\noise_instances"%('CandleQubit_6',sweep_name)
             filename = 'RTN_tau_%d_ns.csv' %(round(tau*1e3))
             print(os.path.join(path,filename))
             with open(os.path.join(path,filename)) as waveform_file:
@@ -660,6 +658,8 @@ def create_wfm_file(AC_pars,RT_pars,nPoints,sweep,sweep_name,Tmax,instance,seque
     if AC_pars[0] != 0:
         white_noise = np.random.normal(loc=AC_pars[0], scale=AC_pars[1], size=nPoints)
         white_noise = white_noise[...,None]
+        len(qubit_free_evol)
+        len(white_noise)
         wfm_arr = np.hstack((qubit_free_evol,white_noise))
     else:
         wfm_arr = qubit_free_evol
@@ -675,13 +675,13 @@ def create_wfm_file(AC_pars,RT_pars,nPoints,sweep,sweep_name,Tmax,instance,seque
         fileName = "T1_wfm"
         np.savetxt("C:/Users/LFL/Documents/Zurich Instruments/LabOne/WebServer/awg/waves/"+fileName+".csv", wfm_arr, delimiter = ",")
 
-def gen_noise_realizations(noiseType='RTN',par1_arr=np.linspace(0,10,100),par2_arr=[0],numRealizations=3,nPoints=1000,T_max=5e-6,sweep_count=1):
+def gen_noise_realizations(noiseType='RTN',par1_arr=np.linspace(0,10,100),par2_arr=[0],numRealizations=3,nPoints=1000,T_max=5e-6,sweep_count=1,meas_device='CandleQubit_6'):
 
     numPoints_par1 = len(par1_arr)
     numPoints_par2 = len(par2_arr)
     t = np.linspace(0,T_max,nPoints)
-    parent_dir = 'E:\\generalized-markovian-noise\\noise_instances\\'
-    directory = 'sweep_%03d'%(sweep_count)
+    parent_dir = 'E:\\generalized-markovian-noise\\%s\\sweep_data\\ramsey\\'%(meas_device)
+    directory = 'sweep_%03d\\noise_instances'%(sweep_count)
     path = os.path.join(parent_dir,directory)
     os.mkdir(path)
     noise_arr = np.zeros((numRealizations,nPoints))
@@ -817,3 +817,18 @@ def calc_timeout(nAverages,measPeriod,dt,nSteps):
     for i in range(nSteps):
         t += (dt*i+measPeriod)*nAverages
     return t
+
+def init_arrays(par1_len=10,par2_len=10,numRealizations=128,interval=2,nPointsBackground=200,nPoints=200):
+    detuning = np.zeros((par1_len,par2_len,int(numRealizations/interval)),dtype=float)
+    T_b = np.zeros((par1_len,par2_len,int(numRealizations/interval)),dtype=float)
+    bData_I = np.zeros((par1_len,par2_len,int(numRealizations/interval),nPointsBackground),dtype=float)
+    bData_Q  = np.zeros((par1_len,par2_len,int(numRealizations/interval),nPointsBackground),dtype=float)
+    error_b = np.zeros((par1_len,par2_len,int(numRealizations/interval)),dtype=float)
+
+    ram_freq_arr = np.zeros((par1_len,par2_len,numRealizations),dtype=float)
+    T2_arr = np.zeros((par1_len,par2_len,numRealizations),dtype=float)
+    data_I = np.zeros((par1_len,par2_len,numRealizations,nPoints),dtype=float)
+    data_Q = np.zeros((par1_len,par2_len,numRealizations,nPoints),dtype=float)
+    error_arr = np.zeros((par1_len,par2_len,numRealizations),dtype=float)
+
+    return detuning,T_b,bData_I,bData_Q,error_b,ram_freq_arr,T2_arr,data_I,data_Q,error_arr
