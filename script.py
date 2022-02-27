@@ -189,9 +189,9 @@ detun = 0e6
 
 options_ramsey = {
     'sampling_rate':    1.2e9,
-    'nAverages':        128,
-    'Tmax':             10e-6,
-    'stepSize':         40e-9,
+    'nAverages':        512,
+    'Tmax':             15e-6,
+    'stepSize':         20e-9,
     'integration_length':   2.3e-6,
     'cav_resp_time':    options_rabi['cav_resp_time'],
     'amplitude_hd':     A_d,
@@ -202,7 +202,7 @@ options_ramsey = {
     'pi2Width':         1/2*pi_pulse*1e-9,
     'AC_pars':          [options_rabi['AC_pars'][0],0.015],
     'AC_freq':          options_rabi['AC_freq'],
-    'RT_pars':          [0,0]
+    'RT_pars':          [0.01,10]
     }
 
 qubitLO.set_freq(options_ramsey['qubitDriveFreq']/1e9)
@@ -674,7 +674,7 @@ tau = [0.01,10]
 # initialize arrays for data
 stepSize_background = 60e-9
 Tmax_background = 10e-6
-stepSize = 20e-9
+stepSize = 40e-9
 Tmax = 15e-6
 nPoints, nStepsBackground, pulse_length_increment, pulse_length_start = expf.calc_nSteps(sequence='ramsey',fsAWG=1.2e9,stepSize=stepSize_background,Tmax=Tmax_background)
 nPoints,nSteps, pulse_length_increment, pulse_length_start = expf.calc_nSteps(sequence='ramsey',fsAWG=1.2e9,stepSize=stepSize,Tmax=Tmax)
@@ -691,7 +691,6 @@ os.mkdir(data_path)
 os.mkdir(plot_path)
 
 # generate noise instances
-# nPoints = expf.roundToBase(1.2e9*Tmax,32)
 str_gen_noise = time.time()
 expf.gen_noise_realizations(noiseType='RTN',par1_arr=tau,par2_arr=[0],numRealizations=numRealizations,nPoints=nPoints,T_max=Tmax,sweep_count=sweep_count,meas_device=meas_device)
 end_gen_noise = time.time()
@@ -717,7 +716,6 @@ optionsRamsey_par_sweep = {
     }
 
 
-plot = 1
 start_sweep = time.time()
 # generate data
 iteration_rabi = 1
@@ -731,7 +729,7 @@ for i in range(len(B0)):
         k = 0
         #calibrate pi_pulse
         t,I,Q,nPoints = expf.pulse(daq,awg,setup=[0,1,0],**options_rabi)
-        pi_pulse,error = pf.pulse_plot1d(x_vector=t, y_vector=I,plot=1,dt=options_rabi['Tmax']*1e6/nPoints,**options_rabi)
+        pi_pulse,error = pf.pulse_plot1d(x_vector=t, y_vector=I,dt=options_rabi['Tmax']*1e6/nPoints,**options_rabi)
         plt.savefig(os.path.join(plot_path,filename+'_fig_%03d.png' %(iteration_rabi)) , bbox_inches='tight')
         plt.clf()
         iteration_rabi += 1
@@ -739,15 +737,15 @@ for i in range(len(B0)):
         while k < numIterations:
             if k % (interval + 1) == 0 and a != b_measurements:
                 # get background T2* every 10 or so measurements
-                optionsRamsey_par_sweep['nAverages'] = 64
+                optionsRamsey_par_sweep['nAverages'] = 256
                 optionsRamsey_par_sweep['RT_pars'] = [0,0]
-                optionsRamsey_par_sweep['Tmax'] = 10e-6
-                optionsRamsey_par_sweep['stepSize'] = 60e-9
+                optionsRamsey_par_sweep['Tmax'] = Tmax_background
+                optionsRamsey_par_sweep['stepSize'] = stepSize_background
                 print('----------------------------------\nExecuting background Ramsey measurement')
                 t2,I,Q,nPoints = expf.pulse(daq,awg,setup=[0,1,0],sweep_name=sweep_name,**optionsRamsey_par_sweep)
                 bData_I[i,j,a,:] = I
                 bData_Q[i,j,a,:] = Q
-                detuning[i,j,a],T_b[i,j,a],error = pf.pulse_plot1d(x_vector=t2, y_vector=I,plot=plot,dt=optionsRamsey_par_sweep['Tmax']*1e6/nPoints,**optionsRamsey_par_sweep)
+                detuning[i,j,a],T_b[i,j,a],error = pf.pulse_plot1d(x_vector=t2, y_vector=I,dt=optionsRamsey_par_sweep['Tmax']*1e6/nPoints,**optionsRamsey_par_sweep)
                 error_b[i,j,a] = max(error)
                 # save and then clear plot
                 plt.savefig(os.path.join(plot_path,filename+'_fig_%03d.png'%(a+1)),bbox_inches='tight')
@@ -760,15 +758,15 @@ for i in range(len(B0)):
                 else:
                     setup = [2,1,1]
                 optionsRamsey_par_sweep['RT_pars'] = [B0[i],tau[j]]
-                optionsRamsey_par_sweep['Tmax'] = 15e-6
-                optionsRamsey_par_sweep['nAverages'] = 64
-                optionsRamsey_par_sweep['stepSize'] = 20e-9
+                optionsRamsey_par_sweep['Tmax'] = Tmax
+                optionsRamsey_par_sweep['nAverages'] = 512
+                optionsRamsey_par_sweep['stepSize'] = stepSize
                 print('----------------------------------\nStart %s measurement' %("ramsey"))
                 print('Implementing noise realization %d' %(b+1))
                 t1,I,Q,nPoints = expf.pulse(daq,awg,setup=setup,sweep_name=sweep_name,instance=b,**optionsRamsey_par_sweep)
                 data_I[i,j,b,0:nPoints] = I
                 data_Q[i,j,b,0:nPoints] = Q
-                ram_freq_arr[i,j,b],T2_arr[i,j,b],error = pf.pulse_plot1d(x_vector=t1, y_vector=I,plot=plot,dt=optionsRamsey_par_sweep['Tmax']*1e6/nPoints,**optionsRamsey_par_sweep)
+                ram_freq_arr[i,j,b],T2_arr[i,j,b],error = pf.pulse_plot1d(x_vector=t1, y_vector=I,dt=optionsRamsey_par_sweep['Tmax']*1e6/nPoints,**optionsRamsey_par_sweep)
                 error_arr[i,j,b] = max(error)
                 # save and then clear plot
                 plt.savefig(os.path.join(plot_path,filename+'_fig_%03d.png'%(b+1)),bbox_inches='tight')
