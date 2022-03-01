@@ -136,7 +136,7 @@ with open("E:\\generalized-markovian-noise\\%s\\spectroscopy\\%s_data_%03d.csv"%
 
 iteration_spec += 1
 
-A_d = 0.23
+A_d = 0.230
 '''----------------------------------------------------------Rabi---------------------------------------------------------'''
 list_of_files = glob.glob('E:\generalized-markovian-noise\%s\Rabi\*.csv'%(meas_device))
 latest_file = max(list_of_files, key=os.path.getctime)
@@ -147,12 +147,12 @@ options_rabi = {
     'qubitDriveFreq':   3.3313e9,
     'integration_length':   2.3e-6,
     'cav_resp_time':    0.5e-6,
-    'nAverages':        256,
-    'stepSize':         3e-9,
-    'Tmax':             0.85e-6,
+    'nAverages':        128,
+    'stepSize':         6e-9,
+    'Tmax':             0.95e-6,
     'amplitude_hd':     A_d,
     'sequence':         'rabi',
-    'measPeriod':       300e-6,
+    'measPeriod':       500e-6,
     'AC_pars':          [0.3,0],
     'AC_freq':          7.3586e9
     }
@@ -168,6 +168,7 @@ qubitLO.set_freq(options_rabi['qubitDriveFreq']/1e9)
 t,I,Q,nPoints = expf.pulse(daq,awg,**options_rabi)
 
 # plot data
+# options_rabi['AC_pars'][0] = options_rabi['AC_pars'][0]*6/20
 pi_pulse,error = pf.pulse_plot1d(x_vector=t, y_vector=I,plot=1,dt=t[-1]*1e6/nPoints,**options_rabi,iteration=iteration_rabi)
 # save data
 with open("E:\\generalized-markovian-noise\\%s\\rabi\\%s_data_%03d.csv"%(meas_device,'rabi',iteration_rabi),"w",newline="") as datafile:
@@ -189,20 +190,20 @@ detun = 0e6
 
 options_ramsey = {
     'sampling_rate':    1.2e9,
-    'nAverages':        512,
-    'Tmax':             15e-6,
-    'stepSize':         20e-9,
+    'nAverages':        256,
+    'Tmax':             60e-6,
+    'stepSize':         200e-9,
     'integration_length':   2.3e-6,
     'cav_resp_time':    options_rabi['cav_resp_time'],
     'amplitude_hd':     A_d,
     'sequence':         'ramsey',
-    'measPeriod':       300e-6,
+    'measPeriod':       500e-6,
     'qubitDriveFreq':   options_rabi['qubitDriveFreq']+detun,
     'sweep':            0,
     'pi2Width':         1/2*pi_pulse*1e-9,
-    'AC_pars':          [options_rabi['AC_pars'][0],0.015],
+    'AC_pars':          [0.322,0],
     'AC_freq':          options_rabi['AC_freq'],
-    'RT_pars':          [0.01,10]
+    'RT_pars':          [0,0]
     }
 
 qubitLO.set_freq(options_ramsey['qubitDriveFreq']/1e9)
@@ -210,6 +211,7 @@ qubitLO.set_freq(options_ramsey['qubitDriveFreq']/1e9)
 t,I,Q,nPoints = expf.pulse(daq,awg,setup=[0,0,0],**options_ramsey)
 
 # plot data
+# options_ramsey['AC_pars'][0] = options_ramsey['AC_pars'][0]*6/20
 detuning,T_phi,error = pf.pulse_plot1d(x_vector=t,y_vector=I,plot=1,dt=options_ramsey['Tmax']*1e6/nPoints,**options_ramsey,iteration=iteration_ramsey)
 
 
@@ -668,7 +670,7 @@ B0 = np.linspace(0.001,0.01,11) #the relationship between B0 and frequency of os
 # B0 = [0.001,0.01]
 # tau = np.concatenate((np.linspace(0.01,2,8),np.linspace(3,100,2)))
 # tau = [0.01,0.5,1,5,100]
-tau = [0.01,10]
+tau = [10000]
 # B0 = [0.01,0.2]
 
 # initialize arrays for data
@@ -759,7 +761,7 @@ for i in range(len(B0)):
                     setup = [2,1,1]
                 optionsRamsey_par_sweep['RT_pars'] = [B0[i],tau[j]]
                 optionsRamsey_par_sweep['Tmax'] = Tmax
-                optionsRamsey_par_sweep['nAverages'] = 512
+                optionsRamsey_par_sweep['nAverages'] = 256
                 optionsRamsey_par_sweep['stepSize'] = stepSize
                 print('----------------------------------\nStart %s measurement' %("ramsey"))
                 print('Implementing noise realization %d' %(b+1))
@@ -982,26 +984,30 @@ sweep_count += 1
 '''---------------------------------------Single Shot-------------------------------------------'''
 
 options_single_shot = {
-    'nAverages':        2048,
+    'nAverages':        2**13,
     'setup':            0,
-    'qubit_drive_amp':     3e-3,
-    'readout_drive_amp':     1.0,
-    'cav_resp_time':        0.6e-6,
-    'integration_length':   2e-6,
-    'AC_pars':              [0,0]
+    'pi2Width':         1/2*pi_pulse*1e-9,
+    'measPeriod':       600e-6,
+    'qubit_drive_amp':     A_d,
+    'cav_resp_time':        0.5e-6,
+    'integration_length':   2.3e-6,
+    'AC_pars':              [0.3,0]
     }
 
-data_OFF, data_pi = expf.single_shot(daq, device_qa, awg, device_awg,qubitLO=qubitLO,**options_single_shot)
+data_OFF, data_pi = expf.single_shot(daq,awg,**options_single_shot)
 
 #make histogram
-
+fig = plt.figure()
+ax = fig.add_subplot(111)
 n, bins, patches = plt.hist(x = [data_OFF.real*1e3,data_pi.real*1e3],bins='auto')
 
-plt.grid(axis='y', alpha=0.75)
 plt.xlabel('Voltage (mV)')
-plt.ylabel('N')
+
+plt.ylabel('Counts')
 plt.title('Single Shot Experiment')
-plt.text(23, 45, r'$V_{thres} = , b=3$')
+# plt.text(23, 45, r'$V_{thres} = , b=3$')
+plt.text(10,50,'Readout Attenuation = 30 dB')
+
 maxfreq = n.max()
 # Set a clean upper y-axis limit.
 plt.ylim(ymax=np.ceil(maxfreq / 10) * 10 if maxfreq % 10 else maxfreq + 10)

@@ -521,10 +521,11 @@ def awg_seq(awg, device_awg='dev8233',fs=1.2e9, amplitude_hd = 1,nPoints= 200,nS
         const f_s = _c0_;
         const f_c = 2.4e9;      // clock rate
         const f_seq = f_c/8;     // sequencer instruction rate
+        const measInt_fs = 1.17e6; // sampling rate during passive reset period
         const dt = 1/f_seq;
         const trigger_interval= _c1_; // one meas cycle in sec
         const tmax  = _c2_;    // max waiting time
-        const measPeriod = floor(_c1_/dt);
+        const period_wait_sample = floor(_c1_*measInt_fs);
         const N  = floor(_c2_*f_s);
         var i=0;
 
@@ -532,18 +533,16 @@ def awg_seq(awg, device_awg='dev8233',fs=1.2e9, amplitude_hd = 1,nPoints= 200,nS
         wave pipulse = _c3_*ones(_c4_);
         _add_white_noise_
         // Beginning of the core sequencer program executed on the HDAWG at run time
-        setTrigger(0b0000);         //reset trigger manually
 
         repeat(_c5_) {
             // OFF Measurement
             playZero(N,AWG_RATE_600MHZ);
-            waitWave();
             playWave(1,w_marker);
+            playZero(period_wait_sample,AWG_RATE_1P2MHZ);
             // ON measurement
             playWave(1,pipulse);
-            waitWave();
             playWave(1,w_marker);
-            wait(measPeriod);
+            playZero(period_wait_sample,AWG_RATE_1P2MHZ);
                 }
 
         """)
@@ -552,9 +551,9 @@ def awg_seq(awg, device_awg='dev8233',fs=1.2e9, amplitude_hd = 1,nPoints= 200,nS
         if AC_pars[0] != 0:
             txt = "wave AC = _c3_*ones(_c4_);"
             awg_program = awg_program.replace('_add_white_noise_',txt)
-            txt1 = "playWave(_c3_*ones(N));"
+            txt1 = "playWave(2,_c3_*ones(N));"
             txt2 = "playWave(1,pipulse,2,AC);"
-            awg_program = awg_program.replace('playZero(N,AWG_RATE_600MHZ)',txt1)
+            awg_program = awg_program.replace('playZero(N,AWG_RATE_600MHZ);',txt1)
             awg_program = awg_program.replace('playWave(1,pipulse);',txt2)
         else:
             awg_program = awg_program.replace('_add_white_noise_',"")
@@ -562,12 +561,11 @@ def awg_seq(awg, device_awg='dev8233',fs=1.2e9, amplitude_hd = 1,nPoints= 200,nS
 
         awg_program = awg_program.replace('_c0_', str(fs))
         awg_program = awg_program.replace('_c1_', str(measPeriod))
-        awg_program = awg_program.replace('_c2_', str(2e-6))
+        awg_program = awg_program.replace('_c2_', str(4e-6))
         awg_program = awg_program.replace('_c3_', str(amplitude_hd))
-        awg_program = awg_program.replace('_c4_',str(2*pi2Width))
+        awg_program = awg_program.replace('_c4_',str(int(2*pi2Width)))
         awg_program = awg_program.replace('_c5_',str(nAverages))
 
-    # print(awg_program)
     create_and_compile_awg(awg, device_awg, awg_program, seqr_index = 0, timeout = 10)
 
 def set_triggers_out(daq, device, trigger_ch = 0, source = 0, trigger_delay = -268.2e-15):
@@ -742,7 +740,7 @@ def create_and_compile_awg(daq, device, awg_program, seqr_index= 0, timeout=1,ve
         compilerStatusString = awgModule.getString('compiler/statusstring')
         # print(f"Compiler messages:\n--------------\n{compilerStatusString}\n--------------")
         if compilerStatus == 1: # compilation failed
-            print(awg_program)
+            # print(awg_program)
             raise Exception("Compilation failed.")
         # if compilerStatus == 0:
         #     print("Compilation successful with no warnings.")

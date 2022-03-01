@@ -190,7 +190,6 @@ def awg_seq_readout(daq, device, cav_resp_time = 4e-6,base_rate = 450e6, amplitu
 
     while(true) {
         waitDigTrigger(1,1);
-        //playZero(_c4_,AWG_RATE_225MHZ);
         playWave(1,readoutPulse);
         wait(cav_rate);
         startQA();
@@ -240,9 +239,6 @@ def config_qa(daq,device,integration_length=2.2e-6,delay=300e-9,nAverages=128,se
     daq.setInt('/{:s}/qas/0/result/source'.format(device), 7) # 2 -> source = rotation | 7 = integration
     daq.setInt('/{:s}/qas/0/result/reset'.format(device), 1)
     daq.setInt('/{:s}/qas/0/result/enable'.format(device), 1)
-    # if exp=='spec':
-    #    daq.setInt('/{:s}/qas/0/result/mode'.format(device), 1) # sequential averaging
-    # elif exp=='pulse':
     daq.setInt('/{:s}/qas/0/result/mode'.format(device),0) # cyclic averaging
     daq.sync()
 
@@ -583,6 +579,7 @@ def create_and_compile_awg(daq, device, awg_program, seqr_index= 0, timeout=1,ve
         compilerStatusString = awgModule.getString('compiler/statusstring')
         # print(f"Compiler messages:\n--------------\n{compilerStatusString}\n--------------")
         if compilerStatus == 1: # compilation failed
+            print(awg_program)
             raise Exception("Compilation failed.")
         # if compilerStatus == 0:
         #     print("Compilation successful with no warnings.")
