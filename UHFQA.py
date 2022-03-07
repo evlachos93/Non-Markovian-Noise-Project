@@ -17,20 +17,17 @@
 # In[1]:
 
 
-device_id_uhf = 'DEV2266'
+device_id_uhf = 'DEV2528'
 
 import matplotlib.pyplot as plt
 import time
 import textwrap
 import numpy as np
 import scipy as sp
-import scipy.signal as ss
 import enum
-import matplotlib.pyplot as plt
 import scipy as scy
 import zhinst.utils as ziut
 import zhinst
-import sympy as sy
 
 # ## Plot setting
 
@@ -188,7 +185,10 @@ def awg_seq_readout(daq, device, cav_resp_time = 4e-6,base_rate = 450e6, amplitu
     const cav_rate = floor(cavity_response_time/dt);
     wave readoutPulse = _c3_*ones(N);
 
+
+
     while(true) {
+        setTrigger(0b0000);
         waitDigTrigger(1,1);
         playWave(1,readoutPulse);
         wait(cav_rate);
@@ -202,6 +202,9 @@ def awg_seq_readout(daq, device, cav_resp_time = 4e-6,base_rate = 450e6, amplitu
     awg_program = awg_program.replace('_c3_', str(amplitude_uhf))
     awg_program = awg_program.replace('_c4_', str(int(225e6*2e-6)))
 
+    daq.setInt('/dev2528/awgs/0/auxtriggers/0/channel', 2) # sets the source of digital trigger 1 to be the signal at trigger input 3 (back panel)
+    daq.setDouble('/dev2528/triggers/in/2/level', 0.5)
+    daq.setInt('/dev2528/awgs/0/auxtriggers/0/slope', 1)
     create_and_compile_awg(daq, device,  awg_program, seqr_index = 0, timeout = timeout)
 
 def config_qa(daq,device,integration_length=2.2e-6,delay=300e-9,nAverages=128,sequence='pulse',result_length=1):
@@ -241,6 +244,7 @@ def config_qa(daq,device,integration_length=2.2e-6,delay=300e-9,nAverages=128,se
     daq.setInt('/{:s}/qas/0/result/enable'.format(device), 1)
     daq.setInt('/{:s}/qas/0/result/mode'.format(device),0) # cyclic averaging
     daq.sync()
+
 
 def config_sigin(daq, device, input_range_uhf = 1, ac = [0,0]):
     '''

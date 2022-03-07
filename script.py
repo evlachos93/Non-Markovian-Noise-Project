@@ -33,6 +33,7 @@
 # from VISAdrivers import sa_api as sa
 import time
 import importlib.util
+import json
 import sys, os
 import LO845m as LO
 import numpy as np
@@ -46,6 +47,7 @@ import scipy as scy
 import plot_functions as pf
 import h5py
 from VISAdrivers.LabBrick_LMS_Wrapper import LabBrick_Synthesizer
+# from VISAdrivers.vaunix_attenuator_wrapper import VaunixAttenuator
 
 
 '''Instruments and connection'''
@@ -53,14 +55,19 @@ qa_id = 'dev2528'
 awg_id = 'dev8233'
 meas_device = "CandleQubit_6"
 
+# Instrument Addresses
 qubitLO_IP = "USB0::0x03EB::0xAFFF::621-03A100000-0538::0::INSTR"
 readoutLO_IP = "USB0::0x03EB::0xAFFF::621-03A100000-0519::0::INSTR"
 acStarkLO = 21841
+# readout_attn = 26551
 
+# initialize instruments as python objects
 qubitLO = LO.LO(address=qubitLO_IP,reset=False)
 readoutLO = LO.LO(readoutLO_IP,reset=False)
 acStarkLO = LabBrick_Synthesizer()
 acStarkLO.initDevice(21841)
+# readout_attn = LabBrick_attn()
+# readout_attn.initDevice(26551)
 
 qubitLO.RF_ON()
 readoutLO.RF_ON()
@@ -68,6 +75,8 @@ acStarkLO.setRFOn(bRFOn=True)
 
 qubitLO.set_freq(3.3313)
 readoutLO.set_freq(7.2586)
+acStarkLO.setPowerLevel(9.0)
+acStarkLO.getUseInternalRef()
 acStarkLO.setFrequency(7.3586e9)
 
 '''Initialize connection with Zurich Instruments'''
@@ -136,7 +145,7 @@ with open("E:\\generalized-markovian-noise\\%s\\spectroscopy\\%s_data_%03d.csv"%
 
 iteration_spec += 1
 
-A_d = 0.230
+A_d = 0.23
 '''----------------------------------------------------------Rabi---------------------------------------------------------'''
 list_of_files = glob.glob('E:\generalized-markovian-noise\%s\Rabi\*.csv'%(meas_device))
 latest_file = max(list_of_files, key=os.path.getctime)
@@ -146,10 +155,12 @@ options_rabi = {
     'sampling_rate':    2.4e9,
     'qubitDriveFreq':   3.3313e9,
     'integration_length':   2.3e-6,
+    'prePulseLength':   800e-9,
+    'postPulseLength':  800e-9,
     'cav_resp_time':    0.5e-6,
     'nAverages':        128,
-    'stepSize':         6e-9,
-    'Tmax':             0.95e-6,
+    'stepSize':         4e-9,
+    'Tmax':             0.65e-6,
     'amplitude_hd':     A_d,
     'sequence':         'rabi',
     'measPeriod':       500e-6,
@@ -169,7 +180,11 @@ t,I,Q,nPoints = expf.pulse(daq,awg,**options_rabi)
 
 # plot data
 # options_rabi['AC_pars'][0] = options_rabi['AC_pars'][0]*6/20
-pi_pulse,error = pf.pulse_plot1d(x_vector=t, y_vector=I,plot=1,dt=t[-1]*1e6/nPoints,**options_rabi,iteration=iteration_rabi)
+fitted_pars,error = pf.fit_data(x_vector=t,y_vector=I,dt=t[-1]/nPoints,**options_rabi)
+pf.plot_data(awg,x_vector=t,y_vector=I,fitted_pars=fitted_pars,**options_rabi,iteration=iteration_rabi)
+
+pi_pulse = np.round(1/2*fitted_pars[1])
+
 # save data
 with open("E:\\generalized-markovian-noise\\%s\\rabi\\%s_data_%03d.csv"%(meas_device,'rabi',iteration_rabi),"w",newline="") as datafile:
     writer = csv.writer(datafile)
@@ -187,23 +202,26 @@ iteration_ramsey = int(latest_file[-7:-4].lstrip('0')) + 1
 
 detun = 0e6
 
-
 options_ramsey = {
     'sampling_rate':    1.2e9,
-    'nAverages':        256,
-    'Tmax':             60e-6,
-    'stepSize':         200e-9,
+    'nAverages':        512,
+    'Tmax':             15.5e-6,
+    'stepSize':         40e-9,
+    'prePulseLength':   1500e-9,
+    'postPulseLength':  1500e-9,
     'integration_length':   2.3e-6,
     'cav_resp_time':    options_rabi['cav_resp_time'],
     'amplitude_hd':     A_d,
+    'active_reset':     True,
+    'threshold':        35,
     'sequence':         'ramsey',
     'measPeriod':       500e-6,
     'qubitDriveFreq':   options_rabi['qubitDriveFreq']+detun,
     'sweep':            0,
     'pi2Width':         1/2*pi_pulse*1e-9,
-    'AC_pars':          [0.322,0],
+    'AC_pars':          [0.325,0.015],
     'AC_freq':          options_rabi['AC_freq'],
-    'RT_pars':          [0,0]
+    'RT_pars':          [0.05,1000]
     }
 
 qubitLO.set_freq(options_ramsey['qubitDriveFreq']/1e9)
@@ -212,8 +230,8 @@ t,I,Q,nPoints = expf.pulse(daq,awg,setup=[0,0,0],**options_ramsey)
 
 # plot data
 # options_ramsey['AC_pars'][0] = options_ramsey['AC_pars'][0]*6/20
-detuning,T_phi,error = pf.pulse_plot1d(x_vector=t,y_vector=I,plot=1,dt=options_ramsey['Tmax']*1e6/nPoints,**options_ramsey,iteration=iteration_ramsey)
-
+fitted_pars,error = pf.fit_data(x_vector=t,y_vector=I,dt=t[-1]/nPoints,**options_ramsey)
+pf.plot_data(awg,x_vector=t,y_vector=I,fitted_pars=fitted_pars,**options_ramsey,iteration=iteration_ramsey)
 
 # save data
 with open("E:\\generalized-markovian-noise\\%s\\ramsey\\%s_data_%03d.csv"%(meas_device,'ramsey',iteration_ramsey),"w",newline="") as datafile:
@@ -256,7 +274,7 @@ qubitLO.set_freq(options_echo['qubitDriveFreq']/1e9)
 
 t,I,Q,nPoints = expf.pulse(daq,awg,setup=[0,0,0],**options_echo)
 # plot data
-T_2, error = pf.pulse_plot1d(x_vector=t, y_vector=I,plot=1,**options_echo,iteration=iteration_echo)
+T_2, error = pf.pulse_plot1d(x_vector=t, y_vector=I,**options_echo,iteration=iteration_echo)
 
 # save data
 with open("E:\\generalized-markovian-noise\\%s\\echo\\%s_data_%03d.csv"%(meas_device,'echo',iteration_echo),"w",newline="") as datafile:
@@ -436,7 +454,7 @@ except:
 
 exp = 'ramsey statistics'
 options_ramsey_statistics = {
-    'nAverages':        128,
+    'nAverages':        256,
     'Tmax':             options_ramsey['Tmax'],
     'stepSize':         options_ramsey['stepSize'],
     'integration_length': 2.3e-6,
@@ -452,7 +470,7 @@ options_ramsey_statistics = {
     'RT_pars':          [0,0],
 }
 
-nReps = 500
+nReps = 150
 rep = np.arange(nReps)
 detun_arr = np.zeros(nReps)
 T_phi_arr = np.zeros(nReps)
@@ -463,7 +481,7 @@ plot = 1
 start = time.time()
 for i in range(nReps):
     t,I,Q,nPoints = expf.pulse(daq,awg,setup=[1,1,1],**options_ramsey_statistics)
-    detun_arr[i],T_phi_arr[i],error = pf.pulse_plot1d(x_vector=t, y_vector=I,plot=plot,dt=options_ramsey_statistics['Tmax']*1e6/nPoints,**options_ramsey_statistics, iteration=iteration_ramsey_statistics)
+    detun_arr[i],T_phi_arr[i],error = pf.pulse_plot1d(awg,x_vector=t, y_vector=I,plot=plot,dt=options_ramsey_statistics['Tmax']*1e6/nPoints,**options_ramsey_statistics, iteration=iteration_ramsey_statistics)
     error_arr[i] = max(error)
     now[i] = time.time()  - start
 
@@ -655,29 +673,29 @@ iteration_T1_statistics += 1
     4. Repeat for every parameter point
 '''
 try:
-    list_of_files = glob.glob('E:\generalized-markovian-noise\%s\sweep_data\ramsey\*.csv'%(meas_device))
-    latest_file = max(list_of_files, key=os.path.getctime)
-    sweep_count = int(latest_file[-7:-4].lstrip('0')) + 1
+    directory = 'E:\\generalized-markovian-noise\\%s\\sweep_data\\ramsey\\' %(meas_device)
+    latest_sweep = max(glob.glob(os.path.join(directory, '*')), key=os.path.getmtime)
+    sweep_count = int(latest_sweep[-3:].lstrip('0')) + 1
 except:
     sweep_count = 1
 
 
 numRealizations = 256
-b_measurements = 8
+b_measurements = 32
 numIterations = numRealizations + b_measurements
 interval = int(numRealizations/b_measurements) # how often to take background data without generalized markovian noise
-B0 = np.linspace(0.001,0.01,11) #the relationship between B0 and frequency of oscillations is Omega_R = 25 MHz * A_q
-# B0 = [0.001,0.01]
-# tau = np.concatenate((np.linspace(0.01,2,8),np.linspace(3,100,2)))
+B0 = np.linspace(0.0005,0.1,11) #the relationship between B0 and frequency of oscillations is Omega_R = 25 MHz * A_q
+# B0 = [0.0005,0.015]
+tau = np.concatenate((np.linspace(0.01,2,7),np.linspace(3,20,3),[10000]))
 # tau = [0.01,0.5,1,5,100]
-tau = [10000]
+# tau = [0.01,10000]
 # B0 = [0.01,0.2]
 
 # initialize arrays for data
-stepSize_background = 60e-9
+stepSize_background = 40e-9
 Tmax_background = 10e-6
 stepSize = 40e-9
-Tmax = 15e-6
+Tmax = 16e-6
 nPoints, nStepsBackground, pulse_length_increment, pulse_length_start = expf.calc_nSteps(sequence='ramsey',fsAWG=1.2e9,stepSize=stepSize_background,Tmax=Tmax_background)
 nPoints,nSteps, pulse_length_increment, pulse_length_start = expf.calc_nSteps(sequence='ramsey',fsAWG=1.2e9,stepSize=stepSize,Tmax=Tmax)
 detuning,T_b, bData_I, bData_Q, error_b, ram_freq_arr, T2_arr, data_I, data_Q, error_arr = expf.init_arrays(par1_len=len(B0),par2_len=len(tau),numRealizations=numRealizations,interval=interval,nPointsBackground=nStepsBackground,nPoints=nSteps)
@@ -703,6 +721,10 @@ plt.close('all')
 # sweep ramsey
 optionsRamsey_par_sweep = {
     'sampling_rate':    1.2e9,
+    'active_reset':     True,
+    'threshold':        35,
+    'prePulseLength':   1500e-9,
+    'postPulseLength':  1500e-9,
     'nAverages':        256,
     'Tmax':             3e-6,
     'stepSize':         100e-9,
@@ -712,30 +734,33 @@ optionsRamsey_par_sweep = {
     'sweep':            1,
     'measPeriod':       400e-6,
     'qubitDriveFreq':   3.3313e9,
-    'AC_pars':          [0.3,0.015],
+    'AC_pars':          [0.325,0.015],
     'RT_pars':          [0,0],
     'AC_freq':          acStarkLO.getFrequency()
     }
 
-
+par_sweep_time = expf.calc_sweep_time(par1=B0, par2=tau,measTimeBackground=3,measTime=5,nMeasBackground=b_measurements,nMeas=numRealizations)
+print('Estimated Sweep Time: %.1f hours = %.1f days'%(par_sweep_time/3600,par_sweep_time/(3600*24)))
 start_sweep = time.time()
 # generate data
 iteration_rabi = 1
 for i in range(len(B0)):
     optionsRamsey_par_sweep['RT_pars'][0] = B0[i]
     for j in range(len(tau)):
-        filename = 'RTN_B0_%d_mV_tau_%d_ns' %(round(B0[i]*1e3),round(tau[j]*1e3))
+        filename = 'RTN_B0_%d_uV_tau_%d_ns' %(round(B0[i]*1e6),round(tau[j]*1e3))
         optionsRamsey_par_sweep['RT_pars'][1] = tau[j]
         a = 0 # keeps track of background measurements
         b = 0 # keeps track of noisy measurements
         k = 0
         #calibrate pi_pulse
-        t,I,Q,nPoints = expf.pulse(daq,awg,setup=[0,1,0],**options_rabi)
-        pi_pulse,error = pf.pulse_plot1d(x_vector=t, y_vector=I,dt=options_rabi['Tmax']*1e6/nPoints,**options_rabi)
+        t,I,Q,nPoints = expf.pulse(daq,awg,setup=[0,0,0],**options_rabi)
+        fitted_pars,error = pf.fit_data(x_vector=t,y_vector=I,dt=t[-1]/nPoints,**options_rabi)
+        optionsRamsey_par_sweep['pi2Width'] = np.round(1/4*fitted_pars[1])*1e-9
+        pf.plot_data(awg,x_vector=t,y_vector=I,fitted_pars=fitted_pars,**options_rabi,iteration=iteration_rabi)
         plt.savefig(os.path.join(plot_path,filename+'_fig_%03d.png' %(iteration_rabi)) , bbox_inches='tight')
         plt.clf()
         iteration_rabi += 1
-        print('Next parameter point: B_0 = %.2f V and tau = %.2f microseconds' %(B0[i],tau[j]))
+        print('Next parameter point: B_0 = %.5f V and tau = %.3f microseconds' %(B0[i],tau[j]))
         while k < numIterations:
             if k % (interval + 1) == 0 and a != b_measurements:
                 # get background T2* every 10 or so measurements
@@ -747,7 +772,9 @@ for i in range(len(B0)):
                 t2,I,Q,nPoints = expf.pulse(daq,awg,setup=[0,1,0],sweep_name=sweep_name,**optionsRamsey_par_sweep)
                 bData_I[i,j,a,:] = I
                 bData_Q[i,j,a,:] = Q
-                detuning[i,j,a],T_b[i,j,a],error = pf.pulse_plot1d(x_vector=t2, y_vector=I,dt=optionsRamsey_par_sweep['Tmax']*1e6/nPoints,**optionsRamsey_par_sweep)
+                fitted_pars,error = pf.fit_data(x_vector=t2,y_vector=I,dt=t2[-1]/nPoints,**optionsRamsey_par_sweep)
+                pf.plot_data(awg,x_vector=t2,y_vector=I,fitted_pars=fitted_pars,dt=t2[-1]/nPoints,**optionsRamsey_par_sweep,iteration=a)
+                # detuning[i,j,a],T_b[i,j,a]
                 error_b[i,j,a] = max(error)
                 # save and then clear plot
                 plt.savefig(os.path.join(plot_path,filename+'_fig_%03d.png'%(a+1)),bbox_inches='tight')
@@ -768,7 +795,9 @@ for i in range(len(B0)):
                 t1,I,Q,nPoints = expf.pulse(daq,awg,setup=setup,sweep_name=sweep_name,instance=b,**optionsRamsey_par_sweep)
                 data_I[i,j,b,0:nPoints] = I
                 data_Q[i,j,b,0:nPoints] = Q
-                ram_freq_arr[i,j,b],T2_arr[i,j,b],error = pf.pulse_plot1d(x_vector=t1, y_vector=I,dt=optionsRamsey_par_sweep['Tmax']*1e6/nPoints,**optionsRamsey_par_sweep)
+                fitted_pars,error = pf.fit_data(x_vector=t1,y_vector=I,dt=t1[-1]/nPoints,**optionsRamsey_par_sweep)
+                pf.plot_data(awg,x_vector=t1,y_vector=I,fitted_pars=fitted_pars,dt=t1[-1]/nPoints,**optionsRamsey_par_sweep,iteration=b)
+                # ram_freq_arr[i,j,b],T2_arr[i,j,b],error = pf.pulse_plot1d(awg,x_vector=t1, y_vector=I,dt=optionsRamsey_par_sweep['Tmax']*1e6/nPoints,**optionsRamsey_par_sweep)
                 error_arr[i,j,b] = max(error)
                 # save and then clear plot
                 plt.savefig(os.path.join(plot_path,filename+'_fig_%03d.png'%(b+1)),bbox_inches='tight')
@@ -961,8 +990,6 @@ for i in range(len(B0)):
         with open("E:\generalized-markovian-noise\sweep_data\%s\data_%s.csv"%(sweep_name,filename),"w",newline="") as datafile:
         # with open("E:\\generalized-markovian-noise\\sweep_data\\%s\\redo\\data_%s.csv"%(sweep_name,filename),"w",newline="") as datafile:
             writer = csv.writer(datafile)
-            writer.writerow(header)
-            writer.writerow(exp_pars)
             writer.writerow(['Background Time Data'])
             writer.writerow(t2)
             writer.writerow(['Time Data'])
@@ -984,30 +1011,17 @@ sweep_count += 1
 '''---------------------------------------Single Shot-------------------------------------------'''
 
 options_single_shot = {
-    'nAverages':        2**13,
+    'nAverages':        2**10,
     'setup':            0,
     'pi2Width':         1/2*pi_pulse*1e-9,
     'measPeriod':       600e-6,
     'qubit_drive_amp':     A_d,
     'cav_resp_time':        0.5e-6,
     'integration_length':   2.3e-6,
-    'AC_pars':              [0.3,0]
+    'AC_pars':              [options_rabi['AC_pars'][0],0]
     }
 
 data_OFF, data_pi = expf.single_shot(daq,awg,**options_single_shot)
 
-#make histogram
-fig = plt.figure()
-ax = fig.add_subplot(111)
-n, bins, patches = plt.hist(x = [data_OFF.real*1e3,data_pi.real*1e3],bins='auto')
-
-plt.xlabel('Voltage (mV)')
-
-plt.ylabel('Counts')
-plt.title('Single Shot Experiment')
-# plt.text(23, 45, r'$V_{thres} = , b=3$')
-plt.text(10,50,'Readout Attenuation = 30 dB')
-
-maxfreq = n.max()
-# Set a clean upper y-axis limit.
-plt.ylim(ymax=np.ceil(maxfreq / 10) * 10 if maxfreq % 10 else maxfreq + 10)
+#make 2D histogram
+pf.plot_single_shot(data_OFF, data_pi)

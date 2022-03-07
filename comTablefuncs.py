@@ -26,7 +26,7 @@ import UHFQA as qa
 # Please refer to https://docs.zhinst.com/hdawg/commandtable/v2/schema for other settings
 
 
-def ct_pulse_length(n_wave, pulse_length_start = 32, pulse_length_increment = 16,AC_amp=0,AC_pars=[0,0,0],sequence='rabi'):
+def ct_pulse_length(n_wave, pulse_length_start = 32, pulse_length_increment = 16,AC_amp=0,AC_pars=[0,0,0],sequence='rabi',pipulse=50,active_reset=False):
 
     ct = {'header':{'version':'0.2'}, 'table':[]}
 
@@ -60,6 +60,7 @@ def ct_pulse_length(n_wave, pulse_length_start = 32, pulse_length_increment = 16
 
         ct['table'].append(entry)
         i += 1
+
     if AC_amp != 0:
         AC_pre_length = AC_pars[0]
         entry = {'index': n_wave,
@@ -69,15 +70,17 @@ def ct_pulse_length(n_wave, pulse_length_start = 32, pulse_length_increment = 16
                   },
                   }
         ct['table'].append(entry) # ac pre-pulse
+        n_wave += 1
         if sequence != 'rabi':
             AC_post_length = AC_pars[1]
-            entry = {'index': n_wave+1,
+            entry = {'index': n_wave,
                       'waveform':{
                           'index': 2,
                           'length': AC_post_length
                           },
                       }
             ct['table'].append(entry) # ac post-pulse
+            n_wave += 1
             if sequence == 'echo':
                 mid_pulse_length = AC_pars[2]
                 entry = {'index': n_wave+2,
@@ -87,8 +90,16 @@ def ct_pulse_length(n_wave, pulse_length_start = 32, pulse_length_increment = 16
                               },
                           }
                 ct['table'].append(entry) # ac mid-pulse
-        else:
-            pass
+    if active_reset == True:
+        reset_pulse_len = AC_pars[0] + AC_pars[1]
+        entry = {'index': n_wave,
+                 'waveform':{
+                     'index': 3,
+                     'length': reset_pulse_len
+                     },
+                 }
+        ct['table'].append(entry) # reset pulse
+        n_wave += 1
 
     return ct
 

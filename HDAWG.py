@@ -1,42 +1,9 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[ ]:
-
-
-#!pip install jupyter_contrib_nbextensions
-# !pip install jupyter_nbextensions_configurator
-# !jupyter nbextensions_configurator enable --user
-# !jupyter labextension install @jupyterlab/toc
-
-
-# # Import Modules
-
-# In[6]:
-
-
-# !pip install zhinst-toolkit==0.1.3
-#get_ipython().run_line_magic('matplotlib', 'notebook')
-import os
-import matplotlib.pyplot as plt
 import time
 import textwrap
 import numpy as np
-import scipy as sp
-import scipy.signal
-import enum
-import numpy as np
-import scipy as scy
-from random import seed
-from random import randint
-import pandas as pd
-import experiment_funcs as expf
-import zhinst.utils as ziut
+# import zhinst.utils as ziut
 import zhinst.ziPython
-import zhinst.toolkit as zt
-import itertools
-import csv
-from experiment_funcs import roundToBase
+# import zhinst.toolkit as zt
 
 device_hd_id='DEV8233'
 use_discovery = 1
@@ -118,7 +85,7 @@ def init_wfms(awg,device_awg,nPoints,nWfs):
 
 
 def awg_seq(awg, device_awg='dev8233',fs=1.2e9, amplitude_hd = 1,nPoints= 200,nSteps=100, pi2Width=100,nPointsPre=200,nPointsPost=200,\
-            measPeriod=400e-6,sequence='rabi',pipulse_position=140,piWidth_Y=28e-9,qubit_drive_dur=30e-6,AC_pars=[0.4,0.025],RT_pars=[0,0], pulse_length_increment=32,n_pi_CPMG=10,Tmax=2e-6,nAverages=128):
+            measPeriod=400e-6,sequence='rabi',pipulse_position=140,piWidth_Y=28e-9,qubit_drive_dur=30e-6,AC_pars=[0.4,0.025],RT_pars=[0,0], pulse_length_increment=32,n_pi_CPMG=10,Tmax=2e-6,nAverages=128,active_reset=False):
 
     '''
     AWG SeqC codes
@@ -218,7 +185,7 @@ def awg_seq(awg, device_awg='dev8233',fs=1.2e9, amplitude_hd = 1,nPoints= 200,nS
         const N  = floor(_c2_*f_s);
         var i=0;
 
-        wave w_marker = marker(256,1);
+        wave w_marker = 2*marker(256,1);
 
         _add_white_noise_
         // Beginning of the core sequencer program executed on the HDAWG at run time
@@ -242,8 +209,8 @@ def awg_seq(awg, device_awg='dev8233',fs=1.2e9, amplitude_hd = 1,nPoints= 200,nS
             wfm_2D_arr = np.hstack((qubit_drive_tone,AC_stark_tone))
             fileName = "rabi_wfm"
             np.savetxt("C:/Users/LFL/Documents/Zurich Instruments/LabOne/WebServer/awg/waves/"+fileName+".csv", wfm_2D_arr, delimiter = ",")
-            txt = "wave wfms = \"%s\";\n"%(fileName)+"assignWaveIndex(wfms,0);\n"
-            txt += "wave ACprepulse = %f*ones(%d);\nassignWaveIndex(ACprepulse,1);\n\n"%(AC_pars[0],nPointsPre)
+            txt = "//Make waveforms\nwave wfms = \"%s\";\n"%(fileName)+"assignWaveIndex(wfms,0);\n"
+            txt += "wave ACprepulse = %f*ones(%d);\nwave qubit_channel_pre_pulse = zeros(%d);\nassignWaveIndex(qubit_channel_pre_pulse,ACprepulse,1);\n\n"%(AC_pars[0],nPointsPre,nPointsPre)
             awg_program = awg_program.replace('_add_white_noise_',txt)
             txt2 = 'executeTableEntry(_c5_);'
             txt3 = txt2
@@ -281,6 +248,7 @@ def awg_seq(awg, device_awg='dev8233',fs=1.2e9, amplitude_hd = 1,nPoints= 200,nS
         wave w_marker = marker(256,1);
 
         _add_white_noise_
+        _active_reset_pulses_
         // Beginning of the core sequencer program executed on the HDAWG at run time
           repeat(_c5_){
             for (i=0; i<_c6_; i++) {
@@ -289,9 +257,20 @@ def awg_seq(awg, device_awg='dev8233',fs=1.2e9, amplitude_hd = 1,nPoints= 200,nS
                     _add_AC_post_pulse_
                     playWave(1,w_marker);
                     playZero(period_wait_sample,AWG_RATE_1P2MHZ);
+                    _active_reset_
         }
         }
         """)
+
+        active_reset_program = ('''
+            waitDigTrigger(1);
+            if (getDigTrigger(2)<0.5) {
+                 }
+            else {
+                _apply_reset_
+              }
+            playZero(5,AWG_RATE_1P2MHZ);
+          ''')
 
         if AC_pars[0] != 0:
             fileName = "ramsey_wfm"
@@ -303,28 +282,27 @@ def awg_seq(awg, device_awg='dev8233',fs=1.2e9, amplitude_hd = 1,nPoints= 200,nS
             txt3 = 'executeTableEntry(_c6_+1);'
             awg_program = awg_program.replace('_add_AC_pre_pulse_',txt2)
             awg_program = awg_program.replace('_add_AC_post_pulse_',txt3)
+            if active_reset == True:
+                awg_program = awg_program.replace('_active_reset_pulses_','//Make reset pulses\nassignWaveIndex(join(pi2pulse_pre,pi2pulse_post),join(AC_stark_tone_pre,AC_stark_tone_pre),3);\n')
+                active_reset_program = active_reset_program.replace('_apply_reset_','executeTableEntry(_c6_+2);')
+                active_reset_program = active_reset_program.replace('_c6_',str(nSteps))
+                active_reset_program = active_reset_program.replace('_do_nothing_','')
+                awg_program = awg_program.replace('_active_reset_',active_reset_program)
+                awg_program = awg_program.replace('playZero(period_wait_sample,AWG_RATE_1P2MHZ);','')
+            else:
+                awg_program = awg_program.replace('_active_reset_pulses_','')
+                awg_program = awg_program.replace('_active_reset_','')
         elif RT_pars[0] == 0 and AC_pars[0] == 0:
             awg_program = awg_program.replace('_add_white_noise_',"")
             awg_program = awg_program.replace('executeTableEntry(i);',"playZero(i*_c7_,AWG_RATE_%dMHZ);"%(int(fs/1e6)))
             awg_program = awg_program.replace('_add_AC_pre_pulse_','playWave(pi2pulse);')
             awg_program = awg_program.replace('_add_AC_post_pulse_','playWave(pi2pulse);')
-        # elif RT_pars[0] != 0:
-        #     fileName = "ramsey_wfm"
-        #     txt = "wave wfms = \"%s\";\n"%(fileName)+"assignWaveIndex(wfms,0);\n"
-        #     awg_program = awg_program.replace('_add_white_noise_',txt)
-        #     awg_program = awg_program.replace('_add_AC_pre_pulse_','playWave(pi2pulse);')
-        #     awg_program = awg_program.replace('_add_AC_post_pulse_','playWave(pi2pulse);')
-
-    # //waitDigTrigger(1);
-    #               wait(1000);
-    #               if (getDigTrigger(1)>0) {
-    #                     playWave(1,pipulse);
-    #                     wait(100);
-    #                     }
-    #               else {
-    #                   wait(100);
-    #                  }
-
+            if active_reset == True:
+                active_reset_program = active_reset_program.replace('_apply_reset_','playWave(1,pipulse);\n')
+                active_reset_program = active_reset_program.replace('_do_nothing_','')
+            else:
+                awg_program = awg_program.replace('_active_reset_pulses_','')
+                awg_program = awg_program.replace('_active_reset_','')
         awg_program = awg_program.replace('_c0_', str(fs))
         awg_program = awg_program.replace('_c1_', str(measPeriod))
         awg_program = awg_program.replace('_c2_', str(Tmax))
@@ -544,7 +522,6 @@ def awg_seq(awg, device_awg='dev8233',fs=1.2e9, amplitude_hd = 1,nPoints= 200,nS
             playWave(1,w_marker);
             playZero(period_wait_sample,AWG_RATE_1P2MHZ);
                 }
-
         """)
 
 
@@ -567,6 +544,80 @@ def awg_seq(awg, device_awg='dev8233',fs=1.2e9, amplitude_hd = 1,nPoints= 200,nS
         awg_program = awg_program.replace('_c5_',str(nAverages))
 
     create_and_compile_awg(awg, device_awg, awg_program, seqr_index = 0, timeout = 10)
+
+def create_and_compile_awg(daq, device, awg_program, seqr_index= 0, timeout=1,verbose=0):
+    awgModule = daq.awgModule()
+    awgModule.set('device', device)
+    awgModule.set('index', seqr_index)
+    awgModule.execute()
+    """Compile and upload awg_program as .elf file"""
+    if verbose==0:
+        print("Starting compilation.")
+        awgModule.set('compiler/sourcestring', awg_program)
+        compilerStatus = -1
+        while compilerStatus == -1:
+            compilerStatus = awgModule.getInt('compiler/status')
+            time.sleep(0.1)
+        compilerStatusString = awgModule.getString('compiler/statusstring')
+        # print(f"Compiler messages:\n--------------\n{compilerStatusString}\n--------------")
+        if compilerStatus == 1: # compilation failed
+            print(awg_program)
+            raise Exception("Compilation failed.")
+        # if compilerStatus == 0:
+        #     print("Compilation successful with no warnings.")
+        # if compilerStatus == 2:
+        #     print("Compilation successful with warnings.")
+        # print("Waiting for the upload to the instrument.")
+        elfProgress = 0
+        elfStatus = 0
+        lastElfProgressPrc = None
+        while (elfProgress < 1.0) and (elfStatus != 1):
+            elfProgress = awgModule.getDouble('progress')
+            elfStatus = awgModule.getInt('elf/status')
+            elfProgressPrc = round(elfProgress * 100);
+            if elfProgressPrc != lastElfProgressPrc:
+                # print(f'Upload progress: {elfProgressPrc:2.0f}%')
+                lastElfProgressPrc = elfProgressPrc
+            time.sleep(0.1)
+    else:
+        print("Starting compilation.")
+        awgModule.set('compiler/sourcestring', awg_program)
+        compilerStatus = -1
+        while compilerStatus == -1:
+            compilerStatus = awgModule.getInt('compiler/status')
+            time.sleep(0.1)
+        compilerStatusString = awgModule.getString('compiler/statusstring')
+        print(f"Compiler messages:\n--------------\n{compilerStatusString}\n--------------")
+        if compilerStatus == 1: # compilation failed
+            raise Exception("Compilation failed.")
+        if compilerStatus == 0:
+            print("Compilation successful with no warnings.")
+        if compilerStatus == 2:
+            print("Compilation successful with warnings.")
+        print("Waiting for the upload to the instrument.")
+        elfProgress = 0
+        elfStatus = 0
+        lastElfProgressPrc = None
+        while (elfProgress < 1.0) and (elfStatus != 1):
+            elfProgress = awgModule.getDouble('progress')
+            elfStatus = awgModule.getInt('elf/status')
+            elfProgressPrc = round(elfProgress * 100);
+            if elfProgressPrc != lastElfProgressPrc:
+                print(f'Upload progress: {elfProgressPrc:2.0f}%')
+                lastElfProgressPrc = elfProgressPrc
+            time.sleep(0.1)
+    if elfStatus == 0:
+        print("Upload to the instrument successful.")
+    if elfStatus == 1:
+        raise Exception("Upload to the instrument failed.")
+
+
+def roundToBase(nPoints,base=16):
+    '''Make the AWG happy by uploading a wfm whose points are multiple of 16'''
+    y = base*round(nPoints/base)
+    if y==0:
+        y = base*round(nPoints/base+1)
+    return y
 
 def set_triggers_out(daq, device, trigger_ch = 0, source = 0, trigger_delay = -268.2e-15):
     '''
@@ -723,115 +774,6 @@ outp_offset:        offset of HDAWG waveform output in V
         daq.setInt(outp_on_str.format(device),                      1)
         daq.setInt(sines_enable_str.format(device),   sines_enable[i])
         daq.setInt(f'/{device}/awgs/0/outputs/{i}/modulation/mode', modula[i])
-
-def create_and_compile_awg(daq, device, awg_program, seqr_index= 0, timeout=1,verbose=0):
-    awgModule = daq.awgModule()
-    awgModule.set('device', device)
-    awgModule.set('index', seqr_index)
-    awgModule.execute()
-    """Compile and upload awg_program as .elf file"""
-    if verbose==0:
-        print("Starting compilation.")
-        awgModule.set('compiler/sourcestring', awg_program)
-        compilerStatus = -1
-        while compilerStatus == -1:
-            compilerStatus = awgModule.getInt('compiler/status')
-            time.sleep(0.1)
-        compilerStatusString = awgModule.getString('compiler/statusstring')
-        # print(f"Compiler messages:\n--------------\n{compilerStatusString}\n--------------")
-        if compilerStatus == 1: # compilation failed
-            # print(awg_program)
-            raise Exception("Compilation failed.")
-        # if compilerStatus == 0:
-        #     print("Compilation successful with no warnings.")
-        # if compilerStatus == 2:
-        #     print("Compilation successful with warnings.")
-        # print("Waiting for the upload to the instrument.")
-        elfProgress = 0
-        elfStatus = 0
-        lastElfProgressPrc = None
-        while (elfProgress < 1.0) and (elfStatus != 1):
-            elfProgress = awgModule.getDouble('progress')
-            elfStatus = awgModule.getInt('elf/status')
-            elfProgressPrc = round(elfProgress * 100);
-            if elfProgressPrc != lastElfProgressPrc:
-                # print(f'Upload progress: {elfProgressPrc:2.0f}%')
-                lastElfProgressPrc = elfProgressPrc
-            time.sleep(0.1)
-    else:
-        print("Starting compilation.")
-        awgModule.set('compiler/sourcestring', awg_program)
-        compilerStatus = -1
-        while compilerStatus == -1:
-            compilerStatus = awgModule.getInt('compiler/status')
-            time.sleep(0.1)
-        compilerStatusString = awgModule.getString('compiler/statusstring')
-        print(f"Compiler messages:\n--------------\n{compilerStatusString}\n--------------")
-        if compilerStatus == 1: # compilation failed
-            raise Exception("Compilation failed.")
-        if compilerStatus == 0:
-            print("Compilation successful with no warnings.")
-        if compilerStatus == 2:
-            print("Compilation successful with warnings.")
-        print("Waiting for the upload to the instrument.")
-        elfProgress = 0
-        elfStatus = 0
-        lastElfProgressPrc = None
-        while (elfProgress < 1.0) and (elfStatus != 1):
-            elfProgress = awgModule.getDouble('progress')
-            elfStatus = awgModule.getInt('elf/status')
-            elfProgressPrc = round(elfProgress * 100);
-            if elfProgressPrc != lastElfProgressPrc:
-                print(f'Upload progress: {elfProgressPrc:2.0f}%')
-                lastElfProgressPrc = elfProgressPrc
-            time.sleep(0.1)
-    if elfStatus == 0:
-        print("Upload to the instrument successful.")
-    if elfStatus == 1:
-        raise Exception("Upload to the instrument failed.")
-
-# def create_and_compile_awg(daq, device, awg_program, seqr_index= 0, timeout=1):
-#     awgModule = daq.awgModule()
-#     awgModule.set('device', device)
-#     awgModule.set('index', seqr_index)
-#     awgModule.execute()
-#     """Compile and upload awg_program as .elf file"""
-#     print("Starting compilation.")
-#     awgModule.set('compiler/sourcestring', awg_program)
-#     compilerStatus = -1
-#     while compilerStatus == -1:
-#         compilerStatus = awgModule.getInt('compiler/status')
-#         time.sleep(0.1)
-#     compilerStatusString = awgModule.getString('compiler/statusstring')
-#     print(f"Compiler messages:\n--------------\n{compilerStatusString}\n--------------")
-#     if compilerStatus == 1: # compilation failed
-#         raise Exception("Compilation failed.")
-#     if compilerStatus == 0:
-#         print("Compilation successful with no warnings.")
-#     if compilerStatus == 2:
-#         print("Compilation successful with warnings.")
-#     print("Waiting for the upload to the instrument.")
-#     elfProgress = 0
-#     elfStatus = 0
-#     lastElfProgressPrc = None
-#     while (elfProgress < 1.0) and (elfStatus != 1):
-#         elfProgress = awgModule.getDouble('progress')
-#         elfStatus = awgModule.getInt('elf/status')
-#         elfProgressPrc = round(elfProgress * 100);
-#         if elfProgressPrc != lastElfProgressPrc:
-#             print(f'Upload progress: {elfProgressPrc:2.0f}%')
-#             lastElfProgressPrc = elfProgressPrc
-#         time.sleep(0.1)
-#     if elfStatus == 0:
-#         print("Upload to the instrument successful.")
-#     if elfStatus == 1:
-#         raise Exception("Upload to the instrument failed.")
-
-
-# ## enable_awg
-
-# In[6]:
-
 
 
 def enable_awg(daq, device, enable = 1, single = 1, awgs = 0):

@@ -11,13 +11,6 @@ import UHFQA as qa
 import HDAWG as hd
 #import USB6501 as usb
 import zhinst.utils as ziut
-from IPython.display import clear_output
-import sys
-import importlib.util
-import smf100a as smf
-# import my_math_funcsas  mmf
-import zhinst as zi
-import textwrap
 import comTablefuncs as ctfuncs
 import json
 import csv
@@ -26,7 +19,6 @@ import os
 import plot_functions as pf
 import itertools
 # from VISAdrivers.sa_api import *
-import seaborn as sns; sns.set() # styling
 import collections
 from PyTektronixScope import PyTektronixScope
 
@@ -211,7 +203,7 @@ def single_shot_setup(daq,awg,nAverages=1024,qubit_drive_amp=0.1,AC_pars=[0,0],f
     hd.awg_seq(awg,'dev8233',sequence='single_shot',fs=fs,nAverages=nAverages,AC_pars=AC_pars,amplitude_hd=qubit_drive_amp,measPeriod=measPeriod,pi2Width=pi2Width)
     awg.setInt('/dev8233/awgs/0/time',2) # sets AWG sampling rate to 600 MHz
 
-def seq_setup(awg,sequence='rabi',nAverages=128,nPoints=1024,pulse_length_start=32,fs=2.4e9,nSteps=100,pulse_length_increment=16,Tmax=0.3e-6,amplitude_hd=1,AC_pars=[0.4,0],pi2Width=0,piWidth_Y=0,pipulse_position=20e-9,measPeriod=200e-6,instance=0,sweep_name=0,sweep=0,RT_pars=[0,0]):
+def seq_setup(awg,sequence='rabi',nAverages=128,prePulseLength=1500e-9,postPulseLength=1500e-9,nPoints=1024,pulse_length_start=32,fs=2.4e9,nSteps=100,pulse_length_increment=16,Tmax=0.3e-6,amplitude_hd=1,AC_pars=[0.4,0],pi2Width=0,piWidth_Y=0,pipulse_position=20e-9,measPeriod=200e-6,instance=0,sweep_name=0,sweep=0,RT_pars=[0,0],active_reset=False):
     """
     Function Description
     --------------------
@@ -236,6 +228,7 @@ def seq_setup(awg,sequence='rabi',nAverages=128,nPoints=1024,pulse_length_start=
     pulse_length_increment : integer
         dt in samples. The default is 16.
     Tmax : float
+    active_reset: Boolean
     amplitude_hd : TYPE, optional
         qubit drive amplitude. The default is 1.
     AC_pars : TYPE, optional
@@ -252,10 +245,13 @@ def seq_setup(awg,sequence='rabi',nAverages=128,nPoints=1024,pulse_length_start=
     pi2Width = round(fs * pi2Width)
     piWidth_Y = round(fs*piWidth_Y)
     if AC_pars[0] != 0:
-        prePulseLength = 2500e-9 # AC stark tone is ON before and after the qubit drive tone
-        postPulseLength = 1000e-9
         nPointsPre = roundToBase(prePulseLength*fs+pi2Width)
         nPointsPost = roundToBase(postPulseLength*fs+pi2Width)
+        if nPointsPre >= 2048 or nPointsPost >= 2048:
+            print('Too many points in your AC pre/post pulses!(%d,%d)'%(nPointsPre,nPointsPost))
+            sys.exit()
+        else:
+            pass
     else:
         nPointsPre = 0
         nPointsPost = 0
@@ -264,12 +260,12 @@ def seq_setup(awg,sequence='rabi',nAverages=128,nPoints=1024,pulse_length_start=
     print('-------------Setting HDAWG sequence-------------')
     bt = time.time()
     awg.setInt('/dev8233/awgs/0/time',(int(fs_base/fs-1))) # set sampling rate of AWG to 2.4 GHz
-    hd.awg_seq(awg,AC_pars=AC_pars,fs=fs,nPoints=nPoints,pulse_length_increment=pulse_length_increment,nSteps=nSteps,nPointsPre=nPointsPre,pi2Width=pi2Width,pipulse_position=round(fs*pipulse_position),piWidth_Y=piWidth_Y,nPointsPost=nPointsPost,Tmax=Tmax,amplitude_hd=amplitude_hd,nAverages=nAverages,sequence=sequence,measPeriod=measPeriod,RT_pars=RT_pars)
+    hd.awg_seq(awg,AC_pars=AC_pars,fs=fs,nPoints=nPoints,pulse_length_increment=pulse_length_increment,nSteps=nSteps,nPointsPre=nPointsPre,pi2Width=pi2Width,pipulse_position=round(fs*pipulse_position),piWidth_Y=piWidth_Y,nPointsPost=nPointsPost,Tmax=Tmax,amplitude_hd=amplitude_hd,nAverages=nAverages,sequence=sequence,measPeriod=measPeriod,RT_pars=RT_pars,active_reset=active_reset)
     et = time.time()
     print('HDAWG compilation duration: %.1f s'%(et-bt))
 
     # create and upload command table
-    ct=ctfuncs.ct_pulse_length(n_wave=nSteps, pulse_length_start=pulse_length_start, pulse_length_increment=pulse_length_increment,AC_amp=AC_pars[0], AC_pars=[nPointsPre,nPointsPost,int(2*pi2Width)], sequence=sequence)
+    ct=ctfuncs.ct_pulse_length(n_wave=nSteps, pulse_length_start=pulse_length_start, pulse_length_increment=pulse_length_increment,AC_amp=AC_pars[0], AC_pars=[nPointsPre,nPointsPost,int(2*pi2Width)], active_reset=active_reset,sequence=sequence)
     awg.setVector("/dev8233/awgs/0/commandtable/data", json.dumps(ct))
 
     awg.sync()
@@ -303,7 +299,7 @@ def single_shot(daq,awg,cav_resp_time=1e-6,measPeriod=400e-6,integration_length=
     qa.enable_awg(daq, 'dev2528') # start the readout sequence
     bt = time.time()
     qa.qa_result_reset(daq, 'dev2528')
-    qa.config_qa(daq, 'dev2528',sequence='pulse',nAverages=1,integration_length=integration_length,result_length=result_length,delay=0)
+    qa.config_qa(daq, 'dev2528',sequence='single shot',nAverages=1,integration_length=integration_length,result_length=result_length,delay=0)
     daq.sync()
     qa.qa_result_enable(daq, 'dev2528')
 
@@ -390,9 +386,10 @@ def spectroscopy(daq,awg,qubitLO=0,cav_resp_time=1e-6,integration_length=2e-6,AC
 
     return power_data,I_data,Q_data
 
-def pulse(daq,awg,setup=[0,0,0],Tmax=0.3e-6,nSteps=61,nAverages=128,amplitude_hd=1,sequence='rabi',AC_pars=[0,0],stepSize=2e-9,\
-          RT_pars=[0,0],cav_resp_time=0.5e-6,piWidth_Y=0,AC_freq=5e-9,pipulse_position=20e-9,integration_length=2.3e-6,qubitDriveFreq=3.8135e9,run=1,pi2Width=0,sampling_rate=1.2e9,measPeriod=300e-6,sweep=0,sweep_name='sweep_001',instance=0):
-
+def pulse(daq,awg,setup=[0,0,0],Tmax=0.3e-6,nSteps=61,prePulseLength=1500e-9,postPulseLength=1500e-9,nAverages=128,amplitude_hd=1,
+          sequence='rabi',AC_pars=[0,0],stepSize=2e-9, RT_pars=[0,0],cav_resp_time=0.5e-6,piWidth_Y=0,AC_freq=5e-9,
+          pipulse_position=20e-9,integration_length=2.3e-6,qubitDriveFreq=3.8135e9,run=1,pi2Width=0,sampling_rate=1.2e9,
+          measPeriod=300e-6,sweep=0,sweep_name='sweep_001',instance=0,active_reset=False,threshold=500e-3):
 
     '''
     DESCRIPTION:            Runs a single pulsed experiment (Rabi,Ramsey,T1,Echo)
@@ -408,11 +405,9 @@ def pulse(daq,awg,setup=[0,0,0],Tmax=0.3e-6,nSteps=61,nAverages=128,amplitude_hd
     'pipulse_position':         Where to insert the pipulse (only applicable for echo with telegraph noise). A higher number means the pipulse is applied sooner
     cav_resp_time:              The time it takes for the cavity to ring up/down. Since we are using square integration pulse, we don't want to include the edges of the pulse
     integration_length:         How long the QA integrates for. The readout pulse is 2 microseconds longer than integration+cavity_response
-
     '''
-
     fs = sampling_rate
-    base_rate = 1.8e9       # sampling rate of QA (cannot be chaned in standard mode)
+    base_rate = 1.8e9       # sampling rate of QA (cannot be changed in standard mode)
     readout_pulse_length = integration_length + cav_resp_time + 2.0e-6
 
     if sequence == 'echo' and RT_pars[0] != 0:
@@ -423,6 +418,7 @@ def pulse(daq,awg,setup=[0,0,0],Tmax=0.3e-6,nSteps=61,nAverages=128,amplitude_hd
     else:
         cores = [0]
 
+    # stops AWGs and reset the QA
     hd.enable_awg(awg,'dev8233',enable=0,awgs=cores)
     qa.enable_awg(daq, 'dev2528',enable=0)
     qa.qa_result_reset(daq, 'dev2528')
@@ -431,7 +427,8 @@ def pulse(daq,awg,setup=[0,0,0],Tmax=0.3e-6,nSteps=61,nAverages=128,amplitude_hd
         nPoints,nSteps,pulse_length_increment,pulse_length_start = calc_nSteps(sequence=sequence,fsAWG=fs,piWidth_Y=piWidth_Y,stepSize=stepSize,Tmax=Tmax,RT_pars=RT_pars)
         if sequence == 'ramsey' or sequence == 'echo' or sequence == 'T1':
             create_wfm_file(AC_pars=AC_pars, RT_pars=RT_pars,sequence=sequence, nPoints=nPoints, sweep=sweep, sweep_name=sweep_name, Tmax=Tmax, instance=instance)
-        nSteps,ct = seq_setup(awg,sequence=sequence,piWidth_Y=piWidth_Y,pipulse_position=pipulse_position,nSteps=nSteps,nPoints=nPoints,fs=fs,pulse_length_start=pulse_length_start,pulse_length_increment=pulse_length_increment,instance=instance,sweep_name=sweep_name,amplitude_hd=amplitude_hd,nAverages=nAverages,pi2Width=pi2Width,Tmax=Tmax,AC_pars=AC_pars,RT_pars=RT_pars,measPeriod=measPeriod,sweep=sweep)
+        nSteps,ct = seq_setup(awg,sequence=sequence,piWidth_Y=piWidth_Y,pipulse_position=pipulse_position,nSteps=nSteps,nPoints=nPoints,fs=fs,pulse_length_start=pulse_length_start,pulse_length_increment=pulse_length_increment,instance=instance,sweep_name=sweep_name,amplitude_hd=amplitude_hd,nAverages=nAverages,pi2Width=pi2Width,prePulseLength=prePulseLength,postPulseLength=postPulseLength,Tmax=Tmax,AC_pars=AC_pars,RT_pars=RT_pars,measPeriod=measPeriod,sweep=sweep,active_reset=active_reset)
+        print('setup complete')
     elif setup[0] == 2:
         bt = time.time()
         # replace waveforms, don't recompile program
@@ -451,6 +448,8 @@ def pulse(daq,awg,setup=[0,0,0],Tmax=0.3e-6,nSteps=61,nAverages=128,amplitude_hd
     if setup[2] == 0:
         qa.config_qa(daq,'dev2528',sequence='pulse',nAverages=nAverages,integration_length=integration_length,result_length=nSteps,delay=0)
         daq.sync()
+    if active_reset == True:
+        setup_active_reset(awg, daq,threshold=threshold)
 
     # Determine whether command table is used for error checking later on
     if AC_pars[0] != 0:
@@ -461,7 +460,7 @@ def pulse(daq,awg,setup=[0,0,0],Tmax=0.3e-6,nSteps=61,nAverages=128,amplitude_hd
         use_ct = 0
     print('Estimated Measurement Time: %d sec'%(calc_timeout(nAverages, measPeriod, stepSize, nSteps)))
     # Checks whether the right command table is used
-    ct_awg = json.loads(daq.get(f"/{'dev8233'}/awgs/0/commandtable/data",flat=True)[f"/{'dev8233'}/awgs/0/commandtable/data"][0]['vector'])
+    ct_awg = json.loads(daq.get("/dev8233/awgs/0/commandtable/data",flat=True)["/dev8233/awgs/0/commandtable/data"][0]['vector'])
     if setup[0] == 0 and use_ct == 1:
         if ct_awg != ct:
             print('Error! Invalid Command Table used for Measurement\nCommand Table Sent to AWG\n\n%s\n\nCommand Table in AWG\n\n%s'%(ct,ct_awg))
@@ -475,8 +474,6 @@ def pulse(daq,awg,setup=[0,0,0],Tmax=0.3e-6,nSteps=61,nAverages=128,amplitude_hd
 
     qa.qa_result_enable(daq, 'dev2528')
 
-    # print('----------------------------------\nStart %s measurement' %(sequence))
-    # bt = time.time()
     str_meas = time.time()
     hd.enable_awg(awg,'dev8233',enable=1,awgs=cores) #runs the drive sequence
     data = qa.acquisition_poll(daq, paths, num_samples = result_length, timeout = timeout)
@@ -494,11 +491,10 @@ def pulse(daq,awg,setup=[0,0,0],Tmax=0.3e-6,nSteps=61,nAverages=128,amplitude_hd
     I = data.real
     Q = data.imag
 
-        #Generate time array points
-
+    #Generate time array points
     t = np.zeros(nSteps)
     if use_ct == 1:
-        ct_awg = json.loads(daq.get("/dev8233/awgs/0/commandtable/data",flat=True)["/dev8233/awgs/0/commandtable/data"][0]['vector']) #
+        # ct_awg = json.loads(daq.get("/dev8233/awgs/0/commandtable/data",flat=True)["/dev8233/awgs/0/commandtable/data"][0]['vector']) #
         for i in range(nSteps):
             t[i] = ct_awg['table'][i]['waveform']['length']/fs
     else:
@@ -756,7 +752,7 @@ def qa_monitor_avg(daq,length,averages):
 def scope_meas(awg,daq,length=8192,nAverages=128,samp_rate=1.8e9,trigLevel=0.1):
 
     #setup and initialize scope
-    scope = qa.config_scope(daq,'dev2528',length,scope_avg_weight=1,scope_mode=0)
+    scope = qa.config_scope(daq,'dev2528',scope_length=length,scope_avg_weight=1,scope_mode=0)
     scope = daq.scopeModule()
     daq.setInt('/dev2528/scopes/0/channel', 3)# 1: ch1; 2(DIG):ch2; 3: ch1 and ch2(DIG)
     daq.setInt('/dev2528/scopes/0/channels/0/inputselect', 0) # 0: sigin 1; 1: sigin 2
@@ -784,7 +780,7 @@ def scope_meas(awg,daq,length=8192,nAverages=128,samp_rate=1.8e9,trigLevel=0.1):
     hd.enable_awg(awg,'dev8233',enable=1,awgs=[0])
 
     while int(scope.progress()) != 1:
-        time.sleep(0.05)
+        # time.sleep(0.05)
         result = scope.read()
 
     ch1Data = result['%s' % 'dev2528']['scopes']['0']['wave'][0][0]['wave'][0]/2**15
@@ -829,3 +825,37 @@ def init_arrays(par1_len=10,par2_len=10,numRealizations=128,interval=2,nPointsBa
     error_arr = np.zeros((par1_len,par2_len,numRealizations),dtype=float)
 
     return detuning,T_b,bData_I,bData_Q,error_b,ram_freq_arr,T2_arr,data_I,data_Q,error_arr
+
+def setup_active_reset(awg,daq,threshold=5):
+
+    # if active
+    # Configure AWG settings
+    # select trigger sources
+    daq.setInt('/dev8233/awgs/0/auxtriggers/0/channel', 0)
+    daq.setInt('/dev8233/awgs/0/auxtriggers/1/channel', 1)
+    # Select trigger slope. First trigger is QA Result TRigger (rise), second is QA Result (level)
+    daq.setInt('/dev8233/awgs/0/auxtriggers/0/slope', 1)
+    daq.setInt('/dev8233/awgs/0/auxtriggers/1/slope', 0)
+    # sets trigger level
+    daq.setDouble('/dev8233/triggers/in/0/level', 0.7)
+    daq.setDouble('/dev8233/triggers/in/1/level', 0.7)
+    #Configure QA settings
+    # select trigger sources
+    daq.setInt('/dev2528/triggers/out/0/source', 74)
+    daq.setInt('/dev2528/triggers/out/1/source', 64)
+    # set trigger mode to output ("drive")
+    daq.setInt('/dev2528/triggers/out/0/drive', 1)
+    daq.setInt('/dev2528/triggers/out/1/drive', 1)
+    # set trigger levels to 3 V
+    daq.setDouble('/dev2528/triggers/in/0/level', 3)
+    daq.setDouble('/dev2528/triggers/in/1/level', 3)
+    # sets QA result threshold
+    daq.setDouble('/dev2528/qas/0/thresholds/0/level', threshold)
+    daq.setInt('/dev2528/qas/0/result/source', 7)
+
+# def set_AWG_output_amplitude(range)
+
+def calc_sweep_time(par1,par2,measTimeBackground=1,measTime=25,nMeasBackground=100,nMeas=100):
+    return (measTimeBackground*nMeasBackground+measTime*nMeas)*len(par1)*len(par2)
+
+
