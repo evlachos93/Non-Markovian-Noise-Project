@@ -18,11 +18,15 @@ import itertools
 from scipy.interpolate import interp1d
 import scipy.fftpack
 import time
+import os
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.colors import LightSource
 from types import SimpleNamespace
 pi=np.pi
 import zhinst.utils as ziut
 import seaborn as sns; sns.set() # styling
+from matplotlib.ticker import FormatStrFormatter
+import imageio
 sns.set_style('ticks')
 
 def spec_plot(freq,I,Q,readout_power=-30,qubit_drive_amp=0.2):
@@ -161,7 +165,7 @@ def plot_data(awg,x_vector,y_vector,sequence='rabi',dt=0.01,qubitDriveFreq=3.8e9
                  pi2Width=50e-9,piWidth_Y=0,fitting = 1, plot=1,save_fig = 0,iteration=1,nAverages=1,sampling_rate=2.4e9,
                  integration_length=2e-6,AC_freq=5e9,cav_resp_time=5e-6,sweep=0,stepSize=5e-6,Tmax=5e-6,measPeriod=5e-6,nSteps=101,
                  prePulseLength=1500e-9,postPulseLength=1500e-9,threshold=10e-3,active_reset=False,fitted_pars=[],pi_pulse=50,
-                 fit_single_par_point=0):
+                 fit_single_par_point=0,plot_mode=0):
 
     if fit_single_par_point == 0:
         x_vector = x_vector*1e6
@@ -184,32 +188,45 @@ def plot_data(awg,x_vector,y_vector,sequence='rabi',dt=0.01,qubitDriveFreq=3.8e9
 
     elif sequence == "ramsey":
         if RT_pars[0] != 0 or AC_pars[0] != 0: # if noise is injected, sz or sx, plot data and noise instances
-            fig = plt.figure(figsize=(20,18))
-            ax1 = fig.add_subplot(2,2,(1,2))
-            # Plot data
-            fontSize = 36
-            tickSize = 24
-            markersize= 12
-            linewidth = 6
             if sweep == 1 and fit_single_par_point == 1: # for plotting data averaged over many noise realizations post par sweep
-                ax1.plot(x_vector[0], y_vector[0], '-o', markersize = markersize, c='C0',label='$B_0 = 0$')
-                ax1.plot(x_vector[1], y_vector[1], '-o', markersize = markersize, c='k', label='$B_0 = %.2f mV$ | $\\tau_k = %.3f \mu s$'%(RT_pars[0]*1e3,RT_pars[1]))
+                fig = plt.figure(figsize=((14,8)))
+                ax1 = fig.add_subplot(111)
+                # Plot data
+                fontSize = 22
+                tickSize = 20
+                markersize= 10
+                linewidth = 6
+                # plot data
+                ax1.plot(x_vector[0], y_vector[0], 'o', markersize = markersize, c='C0',label='$B_0 = 0$')
+                if RT_pars[2] != 0:
+                    ax1.plot(x_vector[1], y_vector[1], 'o', markersize = markersize, c='k', label='$B_0$ = %.1f mV | $\\nu = 2\pi\\times$%.1f MHz | $\\tau_k$ = %.3f $\mu$s'%(float(RT_pars[1:RT_pars.find(' ')])*1e3,float(RT_pars[RT_pars.find(' ',RT_pars.find(' ')+1):]),float(RT_pars[RT_pars.find(' ')+1:RT_pars.find(' ',RT_pars.find(' ')+1)])))
+                elif RT_pars[2] == 0:
+                    ax1.plot(x_vector[1], y_vector[1], 'o', markersize = markersize, c='k', label='$B_0 = %.1f mV$ | $\\tau_k = %.3f \mu s$'%(float(RT_pars[1:RT_pars.find(' ')])*1e3,float(RT_pars[RT_pars.find(' ')+1:])))
                 ax1.set_ylabel('Digitizer Voltage (mV)',fontsize=fontSize)
-                ax1.set_xlabel('Pulse Separation ($\mu$s)')
+                ax1.set_xlabel('Pulse Separation ($\mu$s)',fontsize=fontSize)
                 for label in (ax1.get_xticklabels() + ax1.get_yticklabels()):
                     label.set_fontsize(tickSize)
-                ax1.plot(x_vector[0],ramsey(x_vector[0], fitted_pars[0][0], fitted_pars[0][1], fitted_pars[0][2],fitted_pars[0][3],fitted_pars[0][4]),'r',linewidth=linewidth)
-                ax1.plot(x_vector[1],ramsey(x_vector[1], fitted_pars[1][0], fitted_pars[1][1], fitted_pars[1][2],fitted_pars[1][3],fitted_pars[1][4]),'g',linewidth=linewidth)
-                ax1.legend(loc='upper right')
-                # textstr = '$T_{\pi/2}$=%.1f ns\n$\omega_d$ = %.5f GHz\n$A_d$ = %.3f V\n$\Delta$=%.3f MHz\n$\\tau$/$\\tau_0$=%.2f\n$\mu$ = %d mV\n$\omega_{AC}$ = %.4f GHz\n$\sigma$ = %.1f mV\n$\hatn$ = %d'%(pi2Width*1e9,qubitDriveFreq*1e-9,amplitude_hd,fitted_pars[0][1],fitted_pars[1][3]/fitted_pars[0][3],float(AC_pars[1:AC_pars.find(' ')])*1e3,AC_freq*1e-9,float(AC_pars[AC_pars.find(' ')+1:])*1e3,nAverages)
-                textstr = '$T_{\pi/2}$=%.1f ns\n$\omega_d$ = %.5f GHz\n$A_d$ = %.3f V\n$\Delta$=%.3f MHz\n$\\tau$/$\\tau_0$=%.2f\n$\mu$ = %d mV\n$\omega_{AC}$ = %.4f GHz\n$\sigma$ = %.2f mV\n$\hatn$ = %d'%(pi2Width*1e9,qubitDriveFreq*1e-9,amplitude_hd,fitted_pars[0][1],fitted_pars[1][3]/fitted_pars[0][3],AC_pars[0]*1e3,AC_freq*1e-9,AC_pars[1]*1e3,nAverages)
-                plt.gcf().text(0.95, 0.15, textstr, fontsize=fontSize)
+                # plot fits
+                ax1.plot(x_vector[0],ramsey(x_vector[0], fitted_pars[0][0], fitted_pars[0][1], fitted_pars[0][2],fitted_pars[0][3],fitted_pars[0][4]),'r',linewidth=linewidth,label='$\\tau_0 = %.1f \mu s$'%(fitted_pars[0][3]))
+                if fitted_pars[1][1] < 0.01:
+                    fitted_pars[1][1] = 0
+                ax1.plot(x_vector[1],ramsey(x_vector[1], fitted_pars[1][0], fitted_pars[1][1], fitted_pars[1][2],fitted_pars[1][3],fitted_pars[1][4]),'g',linewidth=linewidth,label='$\omega = 2\pi\\times%.1f$ MHz, $\\tau = %.1f \mu s$'%(fitted_pars[1][1],fitted_pars[1][3]))
+                ax1.legend(loc='upper right',prop={'size':22})
+                ax1.set_xlim([0,x_vector[0][-1]])
+                textstr = '$T_{\pi/2}$=%.1f ns\n$\omega_d$ = %.5f GHz\n$A_d$ = %.3f V\n$\Delta$=%.3f MHz\n$\\tau$/$\\tau_0$=%.1f\n$\mu$ = %d mV\n$\omega_{AC}$ = %.4f GHz\n$\sigma$ = %.1f mV\n$\hatn$ = %d'%(pi2Width*1e9,qubitDriveFreq*1e-9,amplitude_hd,fitted_pars[0][1],fitted_pars[1][3]/fitted_pars[0][3],float(AC_pars[1:AC_pars.find(' ')])*1e3,AC_freq*1e-9,float(AC_pars[AC_pars.find(' ')+1:])*1e3,nAverages)
+                # plt.gcf().text(0.95, 0.15, textstr, fontsize=fontSize)
             elif (sweep == 0 or sweep == 1) and fit_single_par_point == 0: #for plotting non-par sweep data and par sweep data during the sweep
-                ax1.plot(x_vector, y_vector, '-o', markersize = markersize, c='C0')
+                fig = plt.figure(figsize=(20,18))
+                ax1 = fig.add_subplot(2,2,(1,2))
+                # Plot data
+                fontSize = 36
+                tickSize = 24
+                markersize= 12
+                linewidth = 6
+                ax1.plot(x_vector, y_vector, 'o', markersize = markersize, c='C0')
                 ax1.set_ylabel('Digitizer Voltage (mV)',fontsize=fontSize)
                 for label in (ax1.get_xticklabels() + ax1.get_yticklabels()):
                     label.set_fontsize(tickSize)
-                ax1.plot(x_vector,ramsey(x_vector, fitted_pars[0], fitted_pars[1], fitted_pars[2],fitted_pars[3],fitted_pars[4]),'r',linewidth=linewidth)
                 # Retrieve and plot telegraph noise instrance
                 waveforms = ziut.parse_awg_waveform(awg.get('/dev8233/awgs/0/waveform/waves/0')['dev8233']['awgs']['0']['waveform']['waves']['0'][0]['vector'],channels=2)
                 t_arr = np.linspace(0,x_vector[-1],len(waveforms[0]))
@@ -224,9 +241,22 @@ def plot_data(awg,x_vector,y_vector,sequence='rabi',dt=0.01,qubitDriveFreq=3.8e9
                 ax2.set_xlabel('Pulse Separation ($\mu$s)',fontsize=fontSize)
                 ax2.set_ylabel('Amplitude (mV)',fontsize=fontSize)
                 ax2.set_title('$\sigma_x$ waveform',fontsize=fontSize)
+                ax3.set_xlabel('Pulse Separation ($\mu$s)',fontsize=fontSize)
                 ax3.set_title('$\sigma_z$ waveform',fontsize=fontSize)
-                textstr = '$T_{\pi/2}$=%.1f ns\n$\omega_d$ = %.6f GHz\n$A_d$ = %.3f V\n$\Delta$=%.3f MHz\n$T_2^*$=%.2f $\mu$s\n$\mu$ = %d mV\n$\omega_{AC}$ = %.4f GHz\n$\sigma$ = %.1f mV\n$B_0$ = %.2f mV\n$\\tau_k$ = %.3f $\mu s$\n$\hatn$ = %d'%(pi2Width*1e9,qubitDriveFreq*1e-9,amplitude_hd,fitted_pars[1],fitted_pars[3],AC_pars[0]*1e3,AC_freq*1e-9,AC_pars[1]*1e3,RT_pars[0]*1e3,RT_pars[1],nAverages)
-                plt.gcf().text(0.95, 0.25, textstr, fontsize=fontSize)
+                if RT_pars[2] != 0:
+                    textstr = '$T_{\pi/2}$=%.1f ns\n$\omega_d$ = %.6f GHz\n$A_d$ = %.3f V\n$\Delta$=%.3f MHz\n$T_2^*$=%.2f $\mu$s\n$\mu$ = %d mV\n$\omega_{AC}$ = %.4f GHz\n$\sigma$ = %.1f mV\n$B_0$ = %.2f mV\n$\\tau_k$ = %.3f $\mu s$\n$\\nu$ = %.1f MHz\n$\hatn$ = %d'%(pi2Width*1e9,qubitDriveFreq*1e-9,amplitude_hd,fitted_pars[1],fitted_pars[3],AC_pars[0]*1e3,AC_freq*1e-9,AC_pars[1]*1e3,RT_pars[0]*1e3,RT_pars[1],RT_pars[2],nAverages)
+                elif RT_pars[2] == 0:
+                    textstr = '$T_{\pi/2}$=%.1f ns\n$\omega_d$ = %.6f GHz\n$A_d$ = %.3f V\n$\Delta$=%.3f MHz\n$T_2^*$=%.2f $\mu$s\n$\mu$ = %d mV\n$\omega_{AC}$ = %.4f GHz\n$\sigma$ = %.1f mV\n$B_0$ = %.2f mV\n$\\tau_k$ = %.3f $\mu s$\n$\hatn$ = %d'%(pi2Width*1e9,qubitDriveFreq*1e-9,amplitude_hd,fitted_pars[1],fitted_pars[3],AC_pars[0]*1e3,AC_freq*1e-9,AC_pars[1]*1e3,RT_pars[0]*1e3,RT_pars[1],nAverages)
+                elif plot_mode == 0:
+                    ax1.plot(x_vector,ramsey(x_vector, fitted_pars[0], fitted_pars[1], fitted_pars[2],fitted_pars[3],fitted_pars[4]),'r',linewidth=linewidth)
+                    plt.gcf().text(0.925, 0.25, textstr, fontsize=fontSize,bbox=dict(boxstyle='round,rounding_size=1.25',facecolor='silver',alpha=0.5))
+                    ax1.set_title('Ramsey Measurement %03d' %(iteration),size=fontSize)
+                if plot_mode == 1:
+                    textstr = '$T_2^*$=%.2f $\mu$s\n$\sigma$ = %.1f mV'%(fitted_pars[3],AC_pars[1]*1e3)
+                    plt.gcf().text(0.925, 0.45, textstr, fontsize=fontSize+10,bbox=dict(boxstyle='round,rounding_size=1.25',facecolor='silver',alpha=0.5))
+                if plot_mode == 2:
+                    textstr = '$\omega$=%.3f MHz\n$T_2^*$=%.2f $\mu$s\n$\sigma$ = %.1f mV\n$B_0$ = %.2f mV\n$\\tau_k$ = %.3f $\mu s$'%(fitted_pars[1],fitted_pars[3],AC_pars[1]*1e3,RT_pars[0]*1e3,RT_pars[1])
+                    plt.gcf().text(0.925, 0.45, textstr, fontsize=fontSize+10,bbox=dict(boxstyle='round,rounding_size=1.25',facecolor='silver',alpha=0.5))
         else: # plot data without any noise instances
             fig = plt.figure()
             ax1 = fig.add_subplot(111)
@@ -242,8 +272,7 @@ def plot_data(awg,x_vector,y_vector,sequence='rabi',dt=0.01,qubitDriveFreq=3.8e9
             ax1.plot(x_vector,ramsey(x_vector, fitted_pars[0], fitted_pars[1], fitted_pars[2],fitted_pars[3],fitted_pars[4]),'r',linewidth=linewidth)
             textstr = '$T_{\pi/2}$=%.1f ns\n$\omega_d$ = %.6f GHz\n$A_d$ = %.3f V\n$\Delta$=%.3f MHz\n$T_2^*$=%.2f $\mu$s\n$\mu$ = %d mV\n$\omega_{AC}$ = %.4f GHz\n$\sigma$ = %.1f mV\n$B_0$ = %.1f mV\n$\\tau_k$ = %.3f $\mu s$\n$\hatn$ = %d'%(pi2Width*1e9,qubitDriveFreq*1e-9,amplitude_hd,fitted_pars[1],fitted_pars[3],AC_pars[0]*1e3,AC_freq*1e-9,AC_pars[1]*1e3,RT_pars[0]*1e3,RT_pars[1],nAverages)
             plt.gcf().text(0.95, 0.15, textstr, fontsize=fontSize)
-
-        ax1.set_title('Ramsey Measurement %03d' %(iteration),size=fontSize)
+            ax1.set_title('Ramsey Measurement %03d' %(iteration),size=fontSize)
 
     elif sequence == "echo":
         fig = plt.figure()
@@ -267,6 +296,7 @@ def plot_data(awg,x_vector,y_vector,sequence='rabi',dt=0.01,qubitDriveFreq=3.8e9
         ax.set_title('T1 Measurement %03d' %(iteration))
         plt.gcf().text(0.95, 0.15, textstr, fontsize=14)
 
+    return fig
 
 def fit_beats(sequence,x_vector,y_vector,dt=0.01,qubitDriveFreq=3.8e9,amplitude_hd=1,AC_pars=[0,0],RT_pars=[0,0],pi2Width=50e-9,fitting = 1, plot=1,save_fig = 0,iteration=1):
     x_vector = x_vector*1e6
@@ -296,71 +326,91 @@ def fit_beats(sequence,x_vector,y_vector,dt=0.01,qubitDriveFreq=3.8e9,amplitude_
     ax.set_title('Ramsey Measurement %03d' %(iteration))
     plt.gcf().text(1, 0.25, textstr, fontsize=14)
 
-def sweep_plot_tau(x_data,y_data,z_data):
-    fig = plt.figure(figsize=(3,3),constrained_layout=True)
-    ax = fig.add_subplot(111,projection="3d")
-    X,Y = np.meshgrid(x_data,y_data)
-    surf = ax.plot_surface(X,Y*1e3,z_data, cmap = cm.coolwarm)
+def sweep_plot(x_data,y_data,z_data,data='tau'):
+    fig,ax = plt.subplots(subplot_kw={"projection": "3d"},dpi=300)
+    # fig = plt.figure(figsize=(3,3),constrained_layout=True)
+    # ax = fig.add_subplot(111,projection="3d")
+    if len(x_data) < len(y_data):
+        y_data_mod = y_data
+        x_data_mod = np.append(np.zeros(np.abs(len(y_data)-len(x_data))),x_data,axis=0)
+        z_data_mod = np.append(np.ones((np.abs(len(y_data)-len(x_data)),len(y_data))),z_data,axis=0)
+    elif len(x_data) > len(y_data):
+        x_data_mod = x_data
+        y_data_mod = np.append(np.zeros(np.abs(len(y_data)-len(x_data))),y_data,axis=0)
+        z_data_mod = np.append(np.ones((len(x_data),np.abs(len(y_data)-len(x_data)))),z_data,axis=0)
+    else:
+        x_data_mod = x_data
+        y_data_mod = y_data
+        z_data_mod = z_data
 
-    SMALL_SIZE = 14
-    MEDIUM_SIZE = 10
-    BIGGER_SIZE = 20
+    X,Y = np.meshgrid(x_data_mod,y_data_mod)
+    surf = ax.plot_surface(1e3*X,Y,z_data_mod,cmap=plt.cm.jet,linewidth=0,shade=False)
+
+    labelsize = 16
+    tickLabelSize = 6
+    labelpad = 2
     # ax.set_zlim(0,2)
-    ax.set_xlabel("$\\tau_k (\mu s)$")
-    ax.set_ylabel("$B_0 (mV)$")
-    ax.set_zlabel("$\\tau/\\tau_0 $")
+
+    ax.set_xlabel("$B_0 (mV)$",labelpad=0)
+    ax.set_ylabel("$\\tau_k (\mu s)$",labelpad=0)
+    if data == 'tau':
+        label = "$\\tau $"
+    elif data == 'omega':
+        label = "$\omega$ (MHz)"
+    ax.set_zlabel(label,labelpad=-12)
     ax.view_init(elev=30,azim=-120)
 
-    plt.xticks(rotation=60)
+    plt.xticks(rotation=0)
     plt.yticks(rotation=60)
-    ax.set_xlim((0,max(x_data)))
-    # cbr = fig.colorbar(surf,shrink=0.5)
-    plt.rc('font', size=SMALL_SIZE)          # controls default text sizes
-    plt.rc('axes', titlesize=BIGGER_SIZE)     # fontsize of the axes title
-    plt.rc('axes', labelsize=BIGGER_SIZE)    # fontsize of the x and y labels
-    plt.rc('xtick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
-    plt.rc('ytick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
-    # ax.set_xticklabels(ax.get_xticks(), rotation = 45)
-    # ax.set_yticklabels(ax.get_yticks(), rotation = 45)
-    # ax.set_zlabel(ax.get_zlabel(), rotation = 45)
-    # plt.rc('legend', fontsize=SMALL_SIZE)    # legend fontsize
-    # plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
-    # ax.tick_params(axis='both', which='major', pad=2)
-    # plt.tight_layout(pad=1, w_pad=1, h_pad=1.0)
+    ax.zaxis.set_ticklabels([])
+    ax.set_xlim((min(x_data*1e3),max(x_data*1e3)))
+    ax.set_ylim((0.1,20))
+    ax.set_zlim((0,4))
+    cbar = fig.colorbar(surf,cmap=cm.coolwarm, ticks=np.around(np.linspace(0,4,12)),values=np.linspace(0,4,1000),shrink=0.5,location='top')
+    ax.tick_params(axis='both',pad=-2)
     plt.show()
 
-def sweep_plot_omega(x_data,y_data,z_data):
-    fig, ax = plt.subplots(subplot_kw={"projection":"3d"})
+def plot_slice(par1,par2,ydata,data='tau'):
+    fontsize = 22
+    tickSize = 20
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    # ax.plot(par1*1e3,ydata,label='$\\tau_k$ = %.1f $\mu s$'%(par2),c='r',linewidth=4)
+    ax.plot(par1,ydata,label='$B_0$ = %.2f mV'%(round(par2*1e3)),linewidth=2,c='b')
+    ax.set_xlabel('$\\tau_k$ ($\mu$s)',fontsize=fontsize)
+    # ax.set_xlabel('$B_0$ (mV)',fontsize=fontsize)
+    ax.set_ylabel('$\\tau/\\tau_0$',fontsize=fontsize)
 
-    X,Y = np.meshgrid(x_data,y_data)
-    surf = ax.plot_surface(X,Y,z_data, cmap = cm.coolwarm)
-
-    ax.set_zlim(0,7)
-    ax.set_xlabel("$\\tau_k (\mu s)$",loc='left')
-    ax.set_ylabel("$B_0 (mV)$")
-    ax.set_zlabel("$\omega (MHz)$")
-    fig.colorbar(surf,shrink=0.5)
-
+    ax.xaxis.set_major_formatter(FormatStrFormatter('%d'))
+    ax.legend(loc='center right',fontsize=fontsize-6)
+    for label in (ax.get_xticklabels() + ax.get_yticklabels()):
+        label.set_fontsize(tickSize)
     plt.show()
 
+def fit_sweep(par1,par2,sweep='sweep_001'):
 
-def fit_sweep(par1_arr,par2_arr,sweep='sweep_001',plot=1,Tmax=5e-6,Tmax_b=10e-6,sequence='echo'):
+    T2_b_arr = np.zeros((len(par1),len(par2)))
+    detun_b_arr = np.zeros((len(par1),len(par2)))
+    T2_arr = np.zeros((len(par1),len(par2)))
+    detun_arr = np.zeros((len(par1),len(par2)))
 
-    T2_b_arr = np.zeros((len(par1_arr),len(par2_arr)))
-    detun_b_arr = np.zeros((len(par1_arr),len(par2_arr)))
-    T2_arr = np.zeros((len(par1_arr),len(par2_arr)))
-    detun_arr = np.zeros((len(par1_arr),len(par2_arr)))
-
-    for i in range(len(par2_arr)):
-        for j in range(len(par1_arr)):
-            # start = time.time()
-            t_b, data_b , t , data = extract_data(sweep,par1=par1_arr[j], par2 = par2_arr[i])
-            print('Now fitting B0 = %.3f and tau = %.3f' %(par1_arr[j],par2_arr[i]))
-            T2_arr[j,i], error = pulse_plot1d(sequence=sequence, x_vector=t, y_vector=np.mean(data,axis=0),dt=Tmax*1e6/data.shape[1], plot=plot,AC_pars=[0.6,0.08],RT_pars=[par1_arr[j],par2_arr[i]])
-            # fit_beats(sequence='ramsey', dt=Tmax/data.shape[1], plot=plot,x_vector=t, y_vector=-np.mean(data,axis=0),AC_pars=[0.6,0.08],RT_pars=[par1_arr[j],par2_arr[i]])
-            T2_b_arr[j,i], error = pulse_plot1d(sequence=sequence, x_vector=t_b, y_vector=np.mean(data_b,axis=0),dt=Tmax_b*1e6/data_b.shape[1],plot=plot, AC_pars=[0.6,0])
+    for i in range(len(par2)):
+        for j in range(len(par1)):
+            start = time.time()
+            # t_b, data_b , t , data, par_dictionary = extract_data(sweep,par1=par1[j], par2 = par2[i])
+            print('Now fitting B0 = %.4f and tau = %.3f' %(par1[j],par2[i]))
+            # fitted_pars, error = fit_data(x_vector=t, y_vector=np.mean(data,axis=0),dt=t[-1]/data.shape[1], **par_dictionary)
+            fitted_pars = plot_single_par_point(par1=par1[j], par2=par2[i], sweep=sweep,plot=0)
+            # plt.savefig(os.path.join('E:\\generalized-markovian-noise\\CandleQubit_6\\sweep_data\\ramsey\\sweep_006\\'+'plot_B0_%d_uV_tau_%d_ns.png' %(round(par1[j]*1e6),round(par2[i]*1e3))) , bbox_inches='tight')
+            # plt.close(fig)
+            T2_arr[j,i] = fitted_pars[1][3]
+            detun_arr[j,i] = fitted_pars[1][1]
+            # fit_beats(sequence='ramsey', dt=Tmax/data.shape[1], plot=plot,x_vector=t, y_vector=-np.mean(data,axis=0),AC_pars=[0.6,0.08],RT_pars=[par1[j],par2[i]])
+            # fitted_pars, error = fit_data(x_vector=t, y_vector=np.mean(data_b,axis=0),dt=t_b[-1]/data_b.shape[1], **par_dictionary)
+            T2_b_arr[j,i] = fitted_pars[0][3]
+            detun_b_arr[j,i] = fitted_pars[0][1]
             end = time.time()
-            # print('fitting one point took:%.2f sec'%(end-start))
+            print('fitting one point took:%.2f sec'%(end-start))
 
     return detun_arr, T2_arr, detun_b_arr, T2_b_arr
 
@@ -374,9 +424,10 @@ def fit_single_instance(par1,par2,sweep='sweep_001',plot=1):
 
     # return detun, T2
 
-def extract_data(sweep,par1,par2,meas_device):
+def extract_data(sweep,par1,par2,par3,meas_device='CandleQubit_6'):
 
-    filename = 'RTN_B0_%d_mV_tau_%d_ns' %(round(par1*1e3),round(par2*1e3))
+    filename = 'B0_%d_uV_nu_%d_kHz_tau_%d_ns' %(round(par1*1e6),round(par3),round(par2*1e3))
+    # filename = 'RTN_B0_%d_uV_tau_%d_ns' %(round(par1*1e6),round(par2*1e3))
     with open("E:\\generalized-markovian-noise\\%s\\sweep_data\\ramsey\\%s\\data\\data_%s.csv"%(meas_device,sweep,filename)) as datafile:
         csv_reader = csv.reader(datafile,delimiter=',')
         file_data = list(csv_reader)
@@ -426,12 +477,13 @@ def extract_data(sweep,par1,par2,meas_device):
         i = 0
         for key in dictionary:
             if key == 'AC_pars' or key == 'RT_pars':
-                pars = np.zeros((2,1))
+                pars = np.zeros((3,1))
                 values[i] = values[i].replace('[','')
                 values[i] = values[i].replace(']','')
                 values[i] = values[i].replace(',','')
                 pars[0] = float(values[i][1:values[i].find(' ')])
-                pars[1] = float(values[i][values[i].find(' ')+1:-1])
+                pars[1] = float(values[i][values[i].find(' ')+1:values[i].find(' ',values[i].find(' ')+1)])
+                pars[2] = float(values[i][values[i].find(' ',values[i].find(' ')+1):])
                 dictionary[key] = pars
             try:
                 dictionary[key] = float(values[i])
@@ -441,19 +493,22 @@ def extract_data(sweep,par1,par2,meas_device):
 
     return tdata_background, ydata_background, tdata, ydata, dictionary
 
-def plot_single_par_point(par1,par2,sweep,fit=0,meas_device='CandleQubit_6'):
+def plot_single_par_point(par1,par2,par3,sweep,meas_device='CandleQubit_6',plot=1):
     '''
     DESCRIPTION: Plots the averaged ramsey trace over the different noise realizations
     '''
-    tdata_background,ydata_background, tdata, ydata, exp_pars = extract_data(sweep=sweep, par1=par1, par2=par2,meas_device=meas_device)
+    tdata_background,ydata_background, tdata, ydata, exp_pars = extract_data(sweep=sweep, par1=par1, par2=par2,par3=par3,meas_device=meas_device)
     # average
     ydata_avg_background = np.mean(ydata_background,axis=0)
     ydata_avg = np.mean(ydata,axis=0)
     #fit
     fitted_pars,error = fit_data(x_vector=tdata, y_vector=ydata_avg,dt=tdata[-1]/len(tdata),**exp_pars)
-    fitted_pars_background,error_b = fit_data(x_vector=tdata_background, y_vector=ydata_avg_background,dt=tdata_background[-1]/len(tdata_background),**exp_pars,fit_single_par_point=1)
+    fitted_pars_background,error_b = fit_data(x_vector=tdata_background, y_vector=ydata_avg_background,dt=tdata_background[-1]/len(tdata_background),**exp_pars)
     #plot
-    plot_data(awg=None,x_vector=[tdata_background,tdata],y_vector=[ydata_avg_background,ydata_avg],fitted_pars=[fitted_pars_background,fitted_pars],**exp_pars)
+    if plot == 1:
+        fig = plot_data(awg=None,x_vector=[tdata_background,tdata],y_vector=[ydata_avg_background,ydata_avg],fitted_pars=[fitted_pars_background,fitted_pars],**exp_pars,fit_single_par_point=1)
+
+    return [fitted_pars_background,fitted_pars]
 
 def rabi(x, amp,period,phase,offset):
     return amp*np.cos(2*pi*x/period+phase)+offset
@@ -502,3 +557,63 @@ def plot_single_shot(data_OFF,data_pi):
                 }
     dataF = pd.DataFrame(data=data,dtype=float)
     sns.jointplot(data=dataF, x='I (mV)',y='Q (mV)',hue='states')
+
+def plot_noise(length=1000,gif_make=0,wfm1=[],wfm2=[]):
+    mu = 325
+    A_d = 200
+    B0 = 100
+    fontsize = 40
+    linewidth = 10
+    ticksize = 30
+    if gif_make == 0:
+        AC_stark_waveform = np.concatenate((0*np.ones(200),mu*np.ones(500),mu*np.ones(100),mu*np.ones(length)+np.random.normal(loc=0.325, scale=30, size=length),mu*np.ones(100),mu*np.ones(250),0*np.ones(200)))
+        qubit_channel_waveform = np.concatenate((0*np.ones(200),A_d*np.zeros(500),A_d*np.ones(100),B0*gen_tel_noise(length, tau=0.75e6, dt=0.01),A_d*np.ones(100),0*np.ones(250),0*np.ones(200)))
+    elif gif_make == 1:
+        AC_stark_waveform = np.concatenate((wfm1[:800],wfm1[800:length+800],wfm1[-550:]))
+        print(len(AC_stark_waveform))
+        qubit_channel_waveform = np.concatenate((wfm2[:800],wfm2[800:length+800],wfm2[-550:]))
+    t = np.linspace(0,1e-6,len(qubit_channel_waveform))
+    fig = plt.figure(figsize=(20,16))
+    ax = fig.add_subplot(111)
+    ax.plot(t,AC_stark_waveform,c='r',linewidth=linewidth,label='AC Stark Channel Waveform ($\sigma_z$)')
+    ax.set_xlabel('time ($\mu$s)',fontsize=fontsize)
+    ax.plot(t,qubit_channel_waveform,linewidth=linewidth,label='Qubit Channel Waveform ($\sigma_x$)')
+    ax.set_ylabel('Voltage (mV)',fontsize=fontsize)
+    ax.set_ylim([-250,600])
+    for label in (ax.get_xticklabels() + ax.get_yticklabels()):
+        label.set_fontsize(ticksize)
+    ax.legend(loc='upper center',prop={'size':30})
+    plt.show()
+    return fig,AC_stark_waveform,qubit_channel_waveform
+
+def create_wfm_gif(Lmax=1000):
+    numImag = 50
+    filenames = []
+    fig,AC_stark_waveform,qubit_channel_waveform = plot_noise(length=Lmax,gif_make=0)
+    path = 'G:\Shared drives\LFL\Projects\Generalized Markovian noise\MarchMeeting2022\gif\\'
+    for i in range(numImag):
+        fig,wfm1,wfm2 = plot_noise(int(i*Lmax/numImag),gif_make=1,wfm1=AC_stark_waveform,wfm2=qubit_channel_waveform)
+        filename = f'{i}.png'
+        filenames.append(filename)
+        plt.savefig('G:\Shared drives\LFL\Projects\Generalized Markovian noise\MarchMeeting2022\gif\\'+filename,  bbox_inches='tight')
+        plt.close(fig)
+
+   # build gif
+    with imageio.get_writer(os.path.join(path,'ramsey_sequence.gif'), mode='I') as writer:
+        for filename in filenames:
+            image = imageio.imread(os.path.join(path,filename))
+            writer.append_data(image)
+
+    # Remove files
+    for filename in set(filenames):
+        os.remove(filename)
+
+def gen_tel_noise(numPoints,tau,dt):
+
+    signal = np.ones(numPoints)*(-1)**np.random.randint(0,2)
+    for i in range(1,numPoints-1):
+        if np.random.rand() < 1/(2*tau*1e-6/dt)*np.exp(-1/(2*tau*1e-6/dt)):
+            signal[i+1] = - signal[i]
+        else:
+            signal[i+1] = signal[i]
+    return signal

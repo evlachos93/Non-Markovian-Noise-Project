@@ -188,7 +188,7 @@ def awg_seq_readout(daq, device, cav_resp_time = 4e-6,base_rate = 450e6, amplitu
 
 
     while(true) {
-        setTrigger(0b0000);
+        //setTrigger(0b0000);
         waitDigTrigger(1,1);
         playWave(1,readoutPulse);
         wait(cav_rate);
@@ -200,7 +200,6 @@ def awg_seq_readout(daq, device, cav_resp_time = 4e-6,base_rate = 450e6, amplitu
     awg_program = awg_program.replace('_c1_', str(nPoints))
     awg_program = awg_program.replace('_c2_', str(cav_resp_time))
     awg_program = awg_program.replace('_c3_', str(amplitude_uhf))
-    awg_program = awg_program.replace('_c4_', str(int(225e6*2e-6)))
 
     daq.setInt('/dev2528/awgs/0/auxtriggers/0/channel', 2) # sets the source of digital trigger 1 to be the signal at trigger input 3 (back panel)
     daq.setDouble('/dev2528/triggers/in/2/level', 0.5)

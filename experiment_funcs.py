@@ -20,7 +20,7 @@ import plot_functions as pf
 import itertools
 # from VISAdrivers.sa_api import *
 import collections
-from PyTektronixScope import PyTektronixScope
+# from PyTektronixScope import PyTektronixScope
 
 def flatten(d, parent_key='', sep='_'):
     items = []
@@ -32,150 +32,150 @@ def flatten(d, parent_key='', sep='_'):
             items.append((new_key, v))
     return dict(items)
 
-def mixer_calib(awg,mixer='qubit',fc=3.875e9):
-    """
-    DESCRIPTION:
-        Optimizes mixer at given frequency
+# def mixer_calib(awg,mixer='qubit',fc=3.875e9):
+#     """
+#     DESCRIPTION:
+#         Optimizes mixer at given frequency
 
-    INPUTS:
-        device (class): The instrument (AWG or QA) that controls the I and Q channels of the mixer we want to optimize
-        mixer (string): The mixer we want to optimize. Options are "qubit","resonator",and "stark". Defaults to 'qubit'.
-        f_c (float): The frequency we want to optimize at. Defaults to 3.875e9.
-    """
+#     INPUTS:
+#         device (class): The instrument (AWG or QA) that controls the I and Q channels of the mixer we want to optimize
+#         mixer (string): The mixer we want to optimize. Options are "qubit","resonator",and "stark". Defaults to 'qubit'.
+#         f_c (float): The frequency we want to optimize at. Defaults to 3.875e9.
+#     """
 
-    # Open device
-    handle = sa_open_device()["handle"]
-    # Configure device
-    sa_config_center_span(handle, fc, 0.25e6)
-    sa_config_level(handle, -70)
-    sa_config_sweep_coupling(device = handle, rbw = 1e3, vbw = 1e3, reject=0)
-    sa_config_acquisition(device = handle, detector = SA_AVERAGE, scale = SA_LOG_SCALE)
-    sa_config_gain_atten(handle, SA_AUTO_ATTEN, SA_AUTO_GAIN, True)
+#     # Open device
+#     handle = sa_open_device()["handle"]
+#     # Configure device
+#     sa_config_center_span(handle, fc, 0.25e6)
+#     sa_config_level(handle, -70)
+#     sa_config_sweep_coupling(device = handle, rbw = 1e3, vbw = 1e3, reject=0)
+#     sa_config_acquisition(device = handle, detector = SA_AVERAGE, scale = SA_LOG_SCALE)
+#     sa_config_gain_atten(handle, SA_AUTO_ATTEN, SA_AUTO_GAIN, True)
 
-    # Initialize
-    sa_initiate(handle, SA_SWEEPING, 0)
-    query = sa_query_sweep_info(handle)
-    sweep_length = query["sweep_length"]
-    start_freq = query["start_freq"]
-    bin_size = query["bin_size"]
+#     # Initialize
+#     sa_initiate(handle, SA_SWEEPING, 0)
+#     query = sa_query_sweep_info(handle)
+#     sweep_length = query["sweep_length"]
+#     start_freq = query["start_freq"]
+#     bin_size = query["bin_size"]
 
-    freqs = [start_freq + i * bin_size for i in range(sweep_length)]
+#     freqs = [start_freq + i * bin_size for i in range(sweep_length)]
 
-    if mixer == 'qubit':
-        device = 'dev8233'
-        channels = [0,3]
-    elif mixer == 'ac':
-        device = 'dev8233'
-        channels = [1,2]
-    elif mixer == 'readout':
-        device = 'dev2528'
-        channels = [0,1]
-    # get initial offset values
-    I_offset = awg.get('/%s/sigouts/%d/offset'%(device,channels[0]))['dev8233']['sigouts']['%d'%channels[0]]['offset']['value']
-    Q_offset = awg.get('/%s/sigouts/%d/offset'%(device,channels[1]))['dev8233']['sigouts']['%d'%(channels[1])]['offset']['value']
-    data = sa_get_sweep_64f(handle)['max']
-    peak_P = max(data)
-    peak_f = np.argmax(data)
-    print("Calibrating mixer at %.4f GHz"%(freqs[peak_f]*1e-9))
+#     if mixer == 'qubit':
+#         device = 'dev8233'
+#         channels = [0,3]
+#     elif mixer == 'ac':
+#         device = 'dev8233'
+#         channels = [1,2]
+#     elif mixer == 'readout':
+#         device = 'dev2528'
+#         channels = [0,1]
+#     # get initial offset values
+#     I_offset = awg.get('/%s/sigouts/%d/offset'%(device,channels[0]))['dev8233']['sigouts']['%d'%channels[0]]['offset']['value']
+#     Q_offset = awg.get('/%s/sigouts/%d/offset'%(device,channels[1]))['dev8233']['sigouts']['%d'%(channels[1])]['offset']['value']
+#     data = sa_get_sweep_64f(handle)['max']
+#     peak_P = max(data)
+#     peak_f = np.argmax(data)
+#     print("Calibrating mixer at %.4f GHz"%(freqs[peak_f]*1e-9))
 
-    dV = 1e-3
-    i = 0 # 0 when adjusting I offset for the first time, 1 otherwise
-    q = 0 # 0 when adjusting Q offset for the first time, 1 otherwise
-    j = 0 # keeps track of channel changes (I->Q or Q->I)
-    k = 0 # determines which channel we are adjusting (0 is I, 1 is Q)
+#     dV = 1e-3
+#     i = 0 # 0 when adjusting I offset for the first time, 1 otherwise
+#     q = 0 # 0 when adjusting Q offset for the first time, 1 otherwise
+#     j = 0 # keeps track of channel changes (I->Q or Q->I)
+#     k = 0 # determines which channel we are adjusting (0 is I, 1 is Q)
 
-    # Do calibration
-    while max(sa_get_sweep_64f(handle)['max']) > -90:
-        # read offset from channel
-        offset = awg.get('/%s/sigouts/%d/offset'%(device,k))['%s'%(device)]['sigouts']['%d'%k]['offset']['value']
-        awg.setDouble('/%s/sigouts/%d/offset'%(device,k),offset+dV)
-        awg.sync()
-        dP = peak_P - max(sa_get_sweep_64f(handle)['max'])
-        if dP > 0 and i == 0:
-            # go in the other direction
-            awg.setDouble('/%s/sigouts/%d/offset'%(device,k),I_offset-dV)
-            awg.sync()
-            i = 1
-        elif dP > 0 or dP < abs(0.1) and i == 1:
-            # switch to other channel
-            if k == 0:
-                k = 1
-            elif k == 1:
-                k = 0
-            j += 1
-        elif dP < 0:
-            # keep going in the same direction until no decrease in OFF power
-            offset = awg.get('/%s/sigouts/%d/offset'%(device,k))['%s'%(device)]['sigouts']['%d'%(k)]['offset']['value']
-            awg.setDouble('%s/sigouts/%d/offset'%(device,k),offset-dV)
-            awg.sync()
-        elif j > 0:
-            # decrease stepsize by a factor of 10
-            dV = dV/10
-        elif dV < 1e-5:
-            break
-        time.sleep(2)
+#     # Do calibration
+#     while max(sa_get_sweep_64f(handle)['max']) > -90:
+#         # read offset from channel
+#         offset = awg.get('/%s/sigouts/%d/offset'%(device,k))['%s'%(device)]['sigouts']['%d'%k]['offset']['value']
+#         awg.setDouble('/%s/sigouts/%d/offset'%(device,k),offset+dV)
+#         awg.sync()
+#         dP = peak_P - max(sa_get_sweep_64f(handle)['max'])
+#         if dP > 0 and i == 0:
+#             # go in the other direction
+#             awg.setDouble('/%s/sigouts/%d/offset'%(device,k),I_offset-dV)
+#             awg.sync()
+#             i = 1
+#         elif dP > 0 or dP < abs(0.1) and i == 1:
+#             # switch to other channel
+#             if k == 0:
+#                 k = 1
+#             elif k == 1:
+#                 k = 0
+#             j += 1
+#         elif dP < 0:
+#             # keep going in the same direction until no decrease in OFF power
+#             offset = awg.get('/%s/sigouts/%d/offset'%(device,k))['%s'%(device)]['sigouts']['%d'%(k)]['offset']['value']
+#             awg.setDouble('%s/sigouts/%d/offset'%(device,k),offset-dV)
+#             awg.sync()
+#         elif j > 0:
+#             # decrease stepsize by a factor of 10
+#             dV = dV/10
+#         elif dV < 1e-5:
+#             break
+#         time.sleep(2)
 
 
-    data = sa_get_sweep_64f(handle)['max']
-    p_OFF = max(data)
-    freq = np.argmax(data)
-    print("Mixer Optimized\nOFF power is %.1f @ %.4f GHz"%(p_OFF,freq))
+#     data = sa_get_sweep_64f(handle)['max']
+#     p_OFF = max(data)
+#     freq = np.argmax(data)
+#     print("Mixer Optimized\nOFF power is %.1f @ %.4f GHz"%(p_OFF,freq))
 
-    # Device no longer needed, close it
-    sa_close_device(handle)
+#     # Device no longer needed, close it
+#     sa_close_device(handle)
 
-    # Plot
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    ax.plot(freqs,data)
-    ax.set_xlabel('Frequency (GHz)')
-    ax.set_ylabel('Power (dBm)')
+#     # Plot
+#     fig = plt.figure()
+#     ax = fig.add_subplot(111)
+#     ax.plot(freqs,data)
+#     ax.set_xlabel('Frequency (GHz)')
+#     ax.set_ylabel('Power (dBm)')
 
-def get_power(freq=5.7991e9,threshold=-80,plot=0):
+# def get_power(freq=5.7991e9,threshold=-80,plot=0):
 
-    '''
-    DESCRIPTION: retrieves the power at the specified frequency
-    '''
-    # Open device
-    saCloseDevice()
-    handle = sa_open_device()["handle"]
+#     '''
+#     DESCRIPTION: retrieves the power at the specified frequency
+#     '''
+#     # Open device
+#     saCloseDevice()
+#     handle = sa_open_device()["handle"]
 
-    # Configure device
-    sa_config_center_span(handle, freq, 0.1e6)
-    sa_config_level(handle, threshold)
-    sa_config_sweep_coupling(handle, 1e3, 1e3, 0)
-    sa_config_acquisition(handle, SA_AVERAGE, SA_LOG_SCALE)
-    sa_config_gain_atten(handle, SA_AUTO_ATTEN, SA_AUTO_GAIN, True)
+#     # Configure device
+#     sa_config_center_span(handle, freq, 0.1e6)
+#     sa_config_level(handle, threshold)
+#     sa_config_sweep_coupling(handle, 1e3, 1e3, 0)
+#     sa_config_acquisition(handle, SA_AVERAGE, SA_LOG_SCALE)
+#     sa_config_gain_atten(handle, SA_AUTO_ATTEN, SA_AUTO_GAIN, True)
 
-    # Initialize
-    sa_initiate(handle, SA_SWEEPING, 0)
-    query = sa_query_sweep_info(handle)
-    sweep_length = query["sweep_length"]
-    start_freq = query["start_freq"]
-    bin_size = query["bin_size"]
-    freqs = [start_freq + i * bin_size for i in range(sweep_length)]
+#     # Initialize
+#     sa_initiate(handle, SA_SWEEPING, 0)
+#     query = sa_query_sweep_info(handle)
+#     sweep_length = query["sweep_length"]
+#     start_freq = query["start_freq"]
+#     bin_size = query["bin_size"]
+#     freqs = [start_freq + i * bin_size for i in range(sweep_length)]
 
-    # Get sweep
-    sweep_max = sa_get_sweep_32f(handle)['max']
+#     # Get sweep
+#     sweep_max = sa_get_sweep_32f(handle)['max']
 
-    # Device no longer needed, close it
-    sa_close_device(handle)
+#     # Device no longer needed, close it
+#     sa_close_device(handle)
 
-    index_max = np.argmax(np.array(sweep_max))
-    freq_max = freqs[index_max]
-    p_max = sweep_max[index_max]
+#     index_max = np.argmax(np.array(sweep_max))
+#     freq_max = freqs[index_max]
+#     p_max = sweep_max[index_max]
 
-    if plot == 1:
-        # Plot
-        freqs = [start_freq + i * bin_size for i in range(sweep_length)]
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-        ax.plot(freqs,sweep_max)
-        ax.set_xlabel('Frequency (GHz)')
-        ax.set_ylabel('Power (dBm)')
+#     if plot == 1:
+#         # Plot
+#         freqs = [start_freq + i * bin_size for i in range(sweep_length)]
+#         fig = plt.figure()
+#         ax = fig.add_subplot(111)
+#         ax.plot(freqs,sweep_max)
+#         ax.set_xlabel('Frequency (GHz)')
+#         ax.set_ylabel('Power (dBm)')
 
-    print('Max Power is %.1f dBm at %.6f GHz' %(p_max,freq_max*1e-9))
-    return freq_max,p_max
+#     print('Max Power is %.1f dBm at %.6f GHz' %(p_max,freq_max*1e-9))
+#     return freq_max,p_max
 
 
 def readoutSetup(awg,sequence='spec',readout_pulse_length=1.2e-6,cav_resp_time=0.5e-6):
@@ -387,9 +387,9 @@ def spectroscopy(daq,awg,qubitLO=0,cav_resp_time=1e-6,integration_length=2e-6,AC
     return power_data,I_data,Q_data
 
 def pulse(daq,awg,setup=[0,0,0],Tmax=0.3e-6,nSteps=61,prePulseLength=1500e-9,postPulseLength=1500e-9,nAverages=128,amplitude_hd=1,
-          sequence='rabi',AC_pars=[0,0],stepSize=2e-9, RT_pars=[0,0],cav_resp_time=0.5e-6,piWidth_Y=0,AC_freq=5e-9,
+          sequence='rabi',AC_pars=[0,0],stepSize=2e-9, RT_pars=[0,0,0],cav_resp_time=0.5e-6,piWidth_Y=0,AC_freq=5e-9,
           pipulse_position=20e-9,integration_length=2.3e-6,qubitDriveFreq=3.8135e9,run=1,pi2Width=0,sampling_rate=1.2e9,
-          measPeriod=300e-6,sweep=0,sweep_name='sweep_001',instance=0,active_reset=False,threshold=500e-3):
+          measPeriod=300e-6,sweep=0,sweep_name='sweep_001',instance=0,active_reset=False,threshold=500e-3,noise_instance=np.zeros(10)):
 
     '''
     DESCRIPTION:            Runs a single pulsed experiment (Rabi,Ramsey,T1,Echo)
@@ -432,7 +432,7 @@ def pulse(daq,awg,setup=[0,0,0],Tmax=0.3e-6,nSteps=61,prePulseLength=1500e-9,pos
     elif setup[0] == 2:
         bt = time.time()
         # replace waveforms, don't recompile program
-        noise_instance = pull_wfm(sweep_name=sweep_name, RT_pars=RT_pars, instance=instance)
+        # noise_instance = pull_wfm(sweep_name=sweep_name, RT_pars=RT_pars, instance=instance)
         nPoints,nSteps,pulse_length_increment,pulse_length_start = calc_nSteps(sequence=sequence,fsAWG=fs,piWidth_Y=piWidth_Y,stepSize=stepSize,Tmax=Tmax,RT_pars=RT_pars)
         if AC_pars[0] != 0:
             white_noise = np.random.normal(AC_pars[0], AC_pars[1], nPoints)
@@ -458,7 +458,7 @@ def pulse(daq,awg,setup=[0,0,0],Tmax=0.3e-6,nSteps=61,prePulseLength=1500e-9,pos
         use_ct = 1
     else:
         use_ct = 0
-    print('Estimated Measurement Time: %d sec'%(calc_timeout(nAverages, measPeriod, stepSize, nSteps)))
+    print('Estimated Measurement Time (without active reset): %d sec'%(calc_timeout(nAverages, measPeriod, stepSize, nSteps)))
     # Checks whether the right command table is used
     ct_awg = json.loads(daq.get("/dev8233/awgs/0/commandtable/data",flat=True)["/dev8233/awgs/0/commandtable/data"][0]['vector'])
     if setup[0] == 0 and use_ct == 1:
@@ -584,16 +584,29 @@ def roundToBase(nPoints,base=16):
         y = base*round(nPoints/base+1)
     return y
 
-def pull_wfm(sweep_name,RT_pars,instance):
+# def pull_wfm(sweep_name,RT_pars,instance):
+#     tel_amp = RT_pars[0]
+#     tau = RT_pars[1]
+#     nu = RT_pars[2]*1e6
+#     path = "E:\\generalized-markovian-noise\\%s\\sweep_data\\ramsey\\%s\\noise_instances"%('CandleQubit_6',sweep_name)
+#     # filename = 'nu_%d_kHz_tau_%d_ns.csv' %(round(nu*1e-3),round(tau*1e3))
+#     filename = 'RTN_tau_%d_ns.csv' %(round(tau*1e3))
+#     print(os.path.join(path,filename))
+#     with open(os.path.join(path,filename)) as waveform_file:
+#         noise_inst = np.array(next(itertools.islice(csv.reader(waveform_file),0,instance,1)),dtype=np.float32)
+#         qubit_free_evol = tel_amp*noise_inst
+#     return qubit_free_evol
+
+def pull_wfm(sweep_name,RT_pars):
     tel_amp = RT_pars[0]
     tau = RT_pars[1]
+    nu = RT_pars[2]*1e6
     path = "E:\\generalized-markovian-noise\\%s\\sweep_data\\ramsey\\%s\\noise_instances"%('CandleQubit_6',sweep_name)
-    filename = 'RTN_tau_%d_ns.csv' %(round(tau*1e3))
+    filename = 'nu_%d_kHz_tau_%d_ns.csv' %(round(nu*1e-3),round(tau*1e3))
+    # filename = 'RTN_tau_%d_ns.csv' %(round(tau*1e3))
     print(os.path.join(path,filename))
-    with open(os.path.join(path,filename)) as waveform_file:
-        noise_inst = np.array(next(itertools.islice(csv.reader(waveform_file),instance,None)),dtype=np.float32)
-        qubit_free_evol = tel_amp*noise_inst
-    return qubit_free_evol
+    noise_realizations = np.loadtxt(os.path.join(path,filename),dtype=float,delimiter=',')
+    return noise_realizations
 
 def create_echo_wfms(awg,fs=1.2e9,AC_pars=[0,0],RT_pars=[0,0],sweep_name='sweep_001',sweep=0,instance=0,nPoints=1024,Tmax=5e-6,pi2Width=50e-9,nSteps=101,pulse_length_increment=32):
 
@@ -630,14 +643,16 @@ def create_echo_wfms(awg,fs=1.2e9,AC_pars=[0,0],RT_pars=[0,0],sweep_name='sweep_
 def create_wfm_file(AC_pars,RT_pars,nPoints,sweep,sweep_name,Tmax,instance,sequence="ramsey",meas_device='CandleQubit_6'):
 
     # create RTN noise or pull instance from file (only for parameter sweeps)
-    if RT_pars[0]!=0:
+    if RT_pars[0]!= 0:
         tel_amp = RT_pars[0]
         tau = RT_pars[1]
+        nu = RT_pars[2]*1e6
         if sweep == 0:
-            qubit_free_evol = tel_amp * gen_tel_noise(nPoints, tau, dt=Tmax/nPoints)
+            t = np.linspace(0,Tmax,nPoints)
+            qubit_free_evol = tel_amp * np.cos(2*np.pi*nu*t) * gen_tel_noise(nPoints, tau, dt=Tmax/nPoints)
         elif sweep == 1:
             path = "E:\\generalized-markovian-noise\\%s\\sweep_data\\ramsey\\%s\\noise_instances"%('CandleQubit_6',sweep_name)
-            filename = 'RTN_tau_%d_ns.csv' %(round(tau*1e3))
+            filename = "nu_%d_kHz_tau_%d_ns.csv" % (round(nu*1e-3),round(tau*1e3))
             print(os.path.join(path,filename))
             with open(os.path.join(path,filename)) as waveform_file:
                 noise_inst = np.array(next(itertools.islice(csv.reader(waveform_file),instance,None)),dtype=np.float32)
@@ -668,7 +683,7 @@ def create_wfm_file(AC_pars,RT_pars,nPoints,sweep,sweep_name,Tmax,instance,seque
         fileName = "T1_wfm"
         np.savetxt("C:/Users/LFL/Documents/Zurich Instruments/LabOne/WebServer/awg/waves/"+fileName+".csv", wfm_arr, delimiter = ",")
 
-def gen_noise_realizations(noiseType='RTN',par1_arr=np.linspace(0,10,100),par2_arr=[0],numRealizations=3,nPoints=1000,T_max=5e-6,sweep_count=1,meas_device='CandleQubit_6'):
+def gen_noise_realizations(par1_arr=np.linspace(0,10,100),par2_arr=[0],numRealizations=3,nPoints=1000,T_max=5e-6,sweep_count=1,meas_device='CandleQubit_6'):
 
     numPoints_par1 = len(par1_arr)
     numPoints_par2 = len(par2_arr)
@@ -680,14 +695,14 @@ def gen_noise_realizations(noiseType='RTN',par1_arr=np.linspace(0,10,100),par2_a
     noise_arr = np.zeros((numRealizations,nPoints))
     for i in range(numPoints_par2):
         for k in range(numPoints_par1):
-            filename = "%s_tau_%d_ns.csv" % (noiseType,round(par1_arr[k]*1e3))
+            filename = "nu_%d_kHz_tau_%d_ns.csv" % (round(par2_arr[i]*1e3),round(par1_arr[k]*1e3))
             with open(os.path.join(path,filename),"w",newline="") as datafile:
                 writer = csv.writer(datafile)
                 for j in range(numRealizations):
-                    if noiseType == 'RTN':
+                    if len(par2_arr) == 1 and par2_arr[0] == 0:
                         noise_arr[j,:] = gen_tel_noise(nPoints, par1_arr[k], dt = T_max/nPoints)
-                    elif noiseType == 'mod_RTN':
-                        noise_arr[j,:] = np.cos(par2_arr[i]*t) * gen_tel_noise(nPoints, par1_arr[k], dt = T_max/nPoints)
+                    elif len(par2_arr) > 1:
+                        noise_arr[j,:] = np.cos(2*np.pi*par2_arr[i]*t+2*np.pi*np.random.random(1)[0]) * gen_tel_noise(nPoints, par1_arr[k], dt = T_max/nPoints)
 
                 writer.writerows(noise_arr)
 
@@ -811,20 +826,14 @@ def calc_timeout(nAverages,measPeriod,dt,nSteps):
         t += (dt*i+measPeriod)*nAverages
     return t
 
-def init_arrays(par1_len=10,par2_len=10,numRealizations=128,interval=2,nPointsBackground=200,nPoints=200):
-    detuning = np.zeros((par1_len,par2_len,int(numRealizations/interval)),dtype=float)
-    T_b = np.zeros((par1_len,par2_len,int(numRealizations/interval)),dtype=float)
-    bData_I = np.zeros((par1_len,par2_len,int(numRealizations/interval),nPointsBackground),dtype=float)
-    bData_Q  = np.zeros((par1_len,par2_len,int(numRealizations/interval),nPointsBackground),dtype=float)
-    error_b = np.zeros((par1_len,par2_len,int(numRealizations/interval)),dtype=float)
+def init_arrays(numRealizations=128,interval=2,nPointsBackground=200,nPoints=200):
+    bData_I = np.zeros((int(numRealizations/interval),nPointsBackground),dtype=float)
+    bData_Q  = np.zeros((int(numRealizations/interval),nPointsBackground),dtype=float)
 
-    ram_freq_arr = np.zeros((par1_len,par2_len,numRealizations),dtype=float)
-    T2_arr = np.zeros((par1_len,par2_len,numRealizations),dtype=float)
-    data_I = np.zeros((par1_len,par2_len,numRealizations,nPoints),dtype=float)
-    data_Q = np.zeros((par1_len,par2_len,numRealizations,nPoints),dtype=float)
-    error_arr = np.zeros((par1_len,par2_len,numRealizations),dtype=float)
+    data_I = np.zeros((numRealizations,nPoints),dtype=float)
+    data_Q = np.zeros((numRealizations,nPoints),dtype=float)
 
-    return detuning,T_b,bData_I,bData_Q,error_b,ram_freq_arr,T2_arr,data_I,data_Q,error_arr
+    return bData_I,bData_Q,data_I,data_Q
 
 def setup_active_reset(awg,daq,threshold=5):
 
