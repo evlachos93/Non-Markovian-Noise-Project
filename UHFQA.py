@@ -161,7 +161,7 @@ def init(daq, device, output_range_uhf = 1.5, input_range_uhf = 0.3):
     daq.set([('/{:s}/{:s}'.format(device, node), value) for node, value in parameters])
     daq.sync()
 
-def awg_seq_readout(daq, device, cav_resp_time = 4e-6,base_rate = 450e6, amplitude_uhf = 1,readout_length = 2.2e-6,nPoints=1000,timeout=1):
+def awg_seq_readout(daq, device, cav_resp_time = 4e-6,base_rate = 450e6, amplitude_uhf = 1,rr_IF=5e6,readout_length = 2.2e-6,nPoints=1000,timeout=1):
     '''
     AWG sequence for spectroscopy experiment and compile it
 
@@ -176,72 +176,75 @@ def awg_seq_readout(daq, device, cav_resp_time = 4e-6,base_rate = 450e6, amplitu
     '''
 
     awg_program=textwrap.dedent("""
-    const FS = _c00_;
+    const fs = _c00_;
     const f_c = 1.8e9;      // clock rate
     const f_seq = f_c/8;     // sequencer instruction rate
     const dt = 1/f_seq;
-    const N = _c1_;
-    const cavity_response_time = _c2_;
-    const cav_rate = floor(cavity_response_time/dt);
-    wave readoutPulse = _c3_*ones(N);
+    const cav_resp_time = _c1_;
 
-
+    // Readout pulse
+    wave readoutPulse = _c3_*ones(_c2_);
 
     while(true) {
-        //setTrigger(0b0000);
         waitDigTrigger(1,1);
+        startQA(QA_INT_ALL);
         playWave(1,readoutPulse);
-        wait(cav_rate);
-        startQA();
 
     }
     """)
     awg_program = awg_program.replace('_c00_', str(base_rate))
-    awg_program = awg_program.replace('_c1_', str(nPoints))
-    awg_program = awg_program.replace('_c2_', str(cav_resp_time))
+    awg_program = awg_program.replace('_c1_', str(int(cav_resp_time*base_rate)))
+    awg_program = awg_program.replace('_c2_', str(round(readout_length*base_rate)))
     awg_program = awg_program.replace('_c3_', str(amplitude_uhf))
 
     daq.setInt('/dev2528/awgs/0/auxtriggers/0/channel', 2) # sets the source of digital trigger 1 to be the signal at trigger input 3 (back panel)
-    daq.setDouble('/dev2528/triggers/in/2/level', 0.5)
+    daq.setDouble('/dev2528/triggers/in/2/level', 0.1)
     daq.setInt('/dev2528/awgs/0/auxtriggers/0/slope', 1)
     create_and_compile_awg(daq, device,  awg_program, seqr_index = 0, timeout = timeout)
 
-def config_qa(daq,device,integration_length=2.2e-6,delay=300e-9,nAverages=128,sequence='pulse',result_length=1):
+def config_qa(daq,integration_length=2.2e-6,delay=300e-9,nAverages=128,rr_IF=5e6,sequence='pulse',result_length=1):
     print('-------------Configuring QA-------------\n')
     base_rate=1.8e9
-    bypass_crosstalk=1
-    # set modulation frequency of QA AWG to 0 and adjust input range for better resolution
-    daq.setDouble('/{:s}/sigins/0/range'.format(device),0.5)
-    daq.setInt('/{:s}/oscs/0/freq'.format(device),0)
+    bypass_crosstalk=0
+    # set modulation frequency of QA AWG to some IF and adjust input range for better resolution
+    daq.setDouble('/dev2528/sigins/0/range',0.5)
+    # daq.setInt('/dev2528/oscs/0/freq'.format(device),int(rr_IF))
+    # daq.setInt('/dev2528/awgs/0/outputs/0/mode', 1) # AWG set to modulation mode
 
     # QA setup Settings
-    daq.setInt('/{:s}/qas/0/integration/sources/1'.format(device), 0)
-    daq.setInt('/{:s}/qas/0/delay'.format(device),round(delay*base_rate))
-    if sequence =='spec':
-        daq.setInt('/{:s}/qas/0/integration/mode'.format(device), 0) # 0 for standard (4096 samples max), 1 for spectroscopy
-    elif sequence =='pulse':
-        daq.setInt('/{:s}/qas/0/integration/mode'.format(device), 0)
-    daq.setInt('/{:s}/qas/0/integration/length'.format(device), int(base_rate*integration_length))
-    daq.setInt('/{:s}/qas/0/bypass/crosstalk'.format(device), bypass_crosstalk)   #No crosstalk matrix
-    daq.setInt('/{:s}/qas/0/bypass/deskew'.format(device), 1)   #No crosstalk matrix
-    weights = np.ones((round(integration_length*base_rate)))
-    daq.setVector('/{:s}/qas/0/integration/weights/0/real'.format(device), weights)
-    daq.setVector('/{:s}/qas/0/integration/weights/0/imag'.format(device), weights)
-    daq.setInt('/{:s}/qas/0/integration/trigger/channel'.format(device), 7); # 0 for trigger input ch 1, 7 for internal triggering (QA AWG -> QA)
+    daq.setInt('/dev2528/qas/0/integration/sources/1', 0)
+    daq.setInt('/dev2528/qas/0/delay',round(delay*base_rate))
+    # if sequence =='spec':
+    #     daq.setInt('/dev2528/qas/0/integration/mode'.format(device), 0) # 0 for standard (4096 samples max), 1 for spectroscopy
+    # elif sequence =='pulse':
+    #     daq.setInt('/dev2528/qas/0/integration/mode'.format(device), 0)
+    daq.setInt('/dev2528/qas/0/integration/mode', 0) # 0 for standard (4096 samples max), 1 for spectroscopy
+    daq.setInt('/dev2528/qas/0/integration/length', int(base_rate*integration_length))
+    daq.setInt('/dev2528/qas/0/bypass/crosstalk', bypass_crosstalk)   #No crosstalk matrix
+    daq.setInt('/dev2528/qas/0/bypass/deskew', 1)   #No crosstalk matrix
+    # daq.setInt('/dev2528/qas/0/bypass/rotation'.format(device), 1)   #No rotation
+    # x = np.linspace(0,integration_length,round(integration_length*base_rate))
+    # weights_I = np.sin(2*np.pi*rr_IF*x)
+    # weights_Q = np.zeros(round(integration_length*base_rate))
+    weights_I = weights_Q = np.ones(round(integration_length*base_rate))
+    # weights_Q = np.zeros(round(integration_length*base_rate))
+    daq.setVector('/dev2528/qas/0/integration/weights/0/real', weights_I)
+    daq.setVector('/dev2528/qas/0/integration/weights/0/imag', weights_Q)
+    daq.setInt('/dev2528/qas/0/integration/trigger/channel', 7); # 0 for trigger input ch 1, 7 for internal triggering (QA AWG -> QA)
 
     # QA Monitor Settings
-    daq.setInt('/{:s}/qas/0/monitor/trigger/channel'.format(device), 7)
-    daq.setInt('/{:s}/qas/0/monitor/averages'.format(device),nAverages)
-    daq.setInt('/{:s}/qas/0/monitor/length'.format(device), 4096)
+    daq.setInt('/dev2528/qas/0/monitor/trigger/channel', 7)
+    daq.setInt('/dev2528/qas/0/monitor/averages',nAverages)
+    daq.setInt('/dev2528/qas/0/monitor/length', 4096)
     # configure triggering (0=trigger input 1 7 for internal trigger)
 
     # QA Result Settings
-    daq.setInt('/{:s}/qas/0/result/length'.format(device), result_length)
-    daq.setInt('/{:s}/qas/0/result/averages'.format(device), nAverages)
-    daq.setInt('/{:s}/qas/0/result/source'.format(device), 7) # 2 -> source = rotation | 7 = integration
-    daq.setInt('/{:s}/qas/0/result/reset'.format(device), 1)
-    daq.setInt('/{:s}/qas/0/result/enable'.format(device), 1)
-    daq.setInt('/{:s}/qas/0/result/mode'.format(device),0) # cyclic averaging
+    daq.setInt('/dev2528/qas/0/result/length', result_length)
+    daq.setInt('/dev2528/qas/0/result/averages', nAverages)
+    daq.setInt('/dev2528/qas/0/result/source', 7) # 2 -> source = rotation | 7 = integration
+    daq.setInt('/dev2528/qas/0/result/reset', 1)
+    daq.setInt('/dev2528/qas/0/result/enable', 1)
+    daq.setInt('/dev2528/qas/0/result/mode',0) # cyclic averaging
     daq.sync()
 
 

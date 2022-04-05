@@ -3,6 +3,7 @@ import textwrap
 import numpy as np
 # import zhinst.utils as ziut
 import zhinst.ziPython
+from scipy.signal import gausspulse
 # import zhinst.toolkit as zt
 
 device_hd_id='DEV8233'
@@ -84,7 +85,7 @@ def init_wfms(awg,device_awg,nPoints,nWfs):
     enable_awg(awg,device_awg,enable=1)
 
 
-def awg_seq(awg, device_awg='dev8233',fs=1.2e9, amplitude_hd = 1,nPoints= 200,nSteps=100, pi2Width=100,nPointsPre=200,nPointsPost=200,\
+def awg_seq(awg, fs=1.2e9, amplitude_hd = 1,nPoints= 200,nSteps=100, pi2Width=100,nPointsPre=900,nPointsPost=120,\
             measPeriod=400e-6,sequence='rabi',pipulse_position=140,piWidth_Y=28e-9,qubit_drive_dur=30e-6,AC_pars=[0.4,0.025],RT_pars=[0,0], pulse_length_increment=32,n_pi_CPMG=10,Tmax=2e-6,nAverages=128,active_reset=False):
 
     '''
@@ -123,7 +124,7 @@ def awg_seq(awg, device_awg='dev8233',fs=1.2e9, amplitude_hd = 1,nPoints= 200,nS
         const wave_dur_sample  = _c2_;
         wave w = _c3_*ones(wave_dur_sample);
 
-        wave w_marker = marker(256,1);
+        wave w_marker = 2*marker(256,1);
 
        _add_AC_stark_
 
@@ -134,6 +135,7 @@ def awg_seq(awg, device_awg='dev8233',fs=1.2e9, amplitude_hd = 1,nPoints= 200,nS
             // OFF Measurement
             playZero(wave_dur_sample,AWG_RATE_600MHZ);
             playWave(1,w_marker);
+            playZero(period_wait_sample,AWG_RATE_1P2MHZ);
             // ON measurement
             playWave(1,w);
             playWave(1,w_marker);
@@ -185,7 +187,7 @@ def awg_seq(awg, device_awg='dev8233',fs=1.2e9, amplitude_hd = 1,nPoints= 200,nS
         const N  = floor(_c2_*f_s);
         var i=0;
 
-        wave w_marker = 2*marker(256,1);
+        wave w_marker = 2*marker(1024,1);
 
         _add_white_noise_
         // Beginning of the core sequencer program executed on the HDAWG at run time
@@ -264,24 +266,31 @@ def awg_seq(awg, device_awg='dev8233',fs=1.2e9, amplitude_hd = 1,nPoints= 200,nS
 
         active_reset_program = ('''
             waitDigTrigger(1);
-            if (getDigTrigger(2)<0.5) {
-                 }
-            else {
-                _apply_reset_
-              }
-            playZero(5,AWG_RATE_1P2MHZ);
+            playZero(48,AWG_RATE_37P5MHZ);
+            //playZero(1560);
+            if (getDigTrigger(2) == 0) {
+                    _apply_reset_
+            } else {
+                playZero(32);
+                }
+            playZero(32,AWG_RATE_2P34MHZ);
+            //playZero(19200);
           ''')
 
-        if AC_pars[0] != 0:
+        if AC_pars[0] != 0 or AC_pars[1] != 0:
             fileName = "ramsey_wfm"
             txt = "//Make pre-pulse\nwave AC_stark_tone_pre = %f*ones(%d);\n"%(AC_pars[0],nPointsPre)+"wave pi2pulse_pre_zeros = zeros(%d);\n"%(nPointsPre-pi2Width)+"wave pi2pulse_pre=join(pi2pulse_pre_zeros,pi2pulse);\nassignWaveIndex(pi2pulse_pre,AC_stark_tone_pre,1);\n\n"
             txt += "//Make post-pulse\nwave AC_stark_tone_post = %f*ones(%d);\n"%(AC_pars[0],nPointsPost)+"wave pi2pulse_post_zeros = zeros(%d);\n"%(nPointsPost-pi2Width)+ "wave pi2pulse_post=join(pi2pulse,pi2pulse_post_zeros);\nassignWaveIndex(pi2pulse_post,AC_stark_tone_post,2);\n\n"
             txt += "//Load custom waveform\nwave wfms = \"%s\";\n"%(fileName)+"assignWaveIndex(wfms,0);\n"
             awg_program = awg_program.replace('_add_white_noise_',txt)
-            txt2 = 'executeTableEntry(_c6_);'
-            txt3 = 'executeTableEntry(_c6_+1);'
-            awg_program = awg_program.replace('_add_AC_pre_pulse_',txt2)
-            awg_program = awg_program.replace('_add_AC_post_pulse_',txt3)
+            if AC_pars[0] != 0:
+                txt2 = 'executeTableEntry(_c6_);'
+                txt3 = 'executeTableEntry(_c6_+1);'
+                awg_program = awg_program.replace('_add_AC_pre_pulse_',txt2)
+                awg_program = awg_program.replace('_add_AC_post_pulse_',txt3)
+            elif AC_pars[0] == 0:
+                awg_program = awg_program.replace('_add_AC_pre_pulse_','playWave(1,pi2pulse);')
+                awg_program = awg_program.replace('_add_AC_post_pulse_','playWave(1,pi2pulse);')
             if active_reset == True:
                 awg_program = awg_program.replace('_active_reset_pulses_','//Make reset pulses\nassignWaveIndex(join(pi2pulse_pre,pi2pulse_post),join(AC_stark_tone_pre,AC_stark_tone_pre),3);\n')
                 active_reset_program = active_reset_program.replace('_apply_reset_','executeTableEntry(_c6_+2);')
@@ -298,11 +307,16 @@ def awg_seq(awg, device_awg='dev8233',fs=1.2e9, amplitude_hd = 1,nPoints= 200,nS
             awg_program = awg_program.replace('_add_AC_pre_pulse_','playWave(pi2pulse);')
             awg_program = awg_program.replace('_add_AC_post_pulse_','playWave(pi2pulse);')
             if active_reset == True:
+                awg_program = awg_program.replace('_active_reset_pulses_','wave pipulse = join(pi2pulse,pi2pulse);\n')
                 active_reset_program = active_reset_program.replace('_apply_reset_','playWave(1,pipulse);\n')
                 active_reset_program = active_reset_program.replace('_do_nothing_','')
+                awg_program = awg_program.replace('_active_reset_',active_reset_program)
+                awg_program = awg_program.replace('playZero(period_wait_sample,AWG_RATE_1P2MHZ);','')
             else:
                 awg_program = awg_program.replace('_active_reset_pulses_','')
                 awg_program = awg_program.replace('_active_reset_','')
+
+
         awg_program = awg_program.replace('_c0_', str(fs))
         awg_program = awg_program.replace('_c1_', str(measPeriod))
         awg_program = awg_program.replace('_c2_', str(Tmax))
@@ -405,7 +419,7 @@ def awg_seq(awg, device_awg='dev8233',fs=1.2e9, amplitude_hd = 1,nPoints= 200,nS
             awg_program = awg_program.replace('_add_AC_post_pulse_','playWave(pi2pulse);')
         elif RT_pars[0] != 0:
             # pipulse_position = 141 # how much delay there is between the marker being sent out and the second core getting triggered in units of samples
-            create_and_compile_awg(awg, device_awg, awg_program2, seqr_index = 1, timeout = 10)
+            create_and_compile_awg(awg,  awg_program2, seqr_index = 1, timeout = 10)
             awg.setInt('/dev8233/awgs/1/auxtriggers/0/channel', 2)
             awg.setInt('/dev8233/triggers/out/1/source',6)
             txt = "wave AC_stark_tone_pre = %f*ones(%d);\n"%(AC_pars[0],nPointsPre)+"wave pi2pulse_pre_zeros = zeros(%d);\n"%(nPointsPre-pi2Width)+"wave pi2pulse_pre=join(pi2pulse_pre_zeros,pi2pulse);\n"
@@ -507,8 +521,9 @@ def awg_seq(awg, device_awg='dev8233',fs=1.2e9, amplitude_hd = 1,nPoints= 200,nS
         const N  = floor(_c2_*f_s);
         var i=0;
 
-        wave w_marker = marker(256,1);
-        wave pipulse = _c3_*ones(_c4_);
+        wave w_marker = 2*marker(512,1);
+        wave pi2pulse = _c3_*ones(_c4_);
+        wave pipulse = _c3_*ones(2*_c4_);
         _add_white_noise_
         // Beginning of the core sequencer program executed on the HDAWG at run time
 
@@ -517,19 +532,41 @@ def awg_seq(awg, device_awg='dev8233',fs=1.2e9, amplitude_hd = 1,nPoints= 200,nS
             playZero(N,AWG_RATE_600MHZ);
             playWave(1,w_marker);
             playZero(period_wait_sample,AWG_RATE_1P2MHZ);
+            //waitDigTrigger(1);
+            //wait(1);
+            //playZero(48,AWG_RATE_37P5MHZ);
+            //if (getDigTrigger(2) == 0) {
+              //      playZero(32);
+            //} else {
+              //  playWave(1,pi_pulse,2,AC_tone);
+                //}
+            //playZero(32,AWG_RATE_2P34MHZ);
             // ON measurement
             playWave(1,pipulse);
             playWave(1,w_marker);
             playZero(period_wait_sample,AWG_RATE_1P2MHZ);
-                }
+            //waitDigTrigger(1);
+            //wait(1);
+            //playZero(48,AWG_RATE_37P5MHZ);
+            //if (getDigTrigger(2) == 0) {
+              //      playZero(32);
+            //} else {
+              //  playWave(1,pi_pulse,2,AC_tone);
+                //}
+            //playZero(32,AWG_RATE_2P34MHZ);
+}
+
         """)
 
 
-        if AC_pars[0] != 0:
-            txt = "wave AC = _c3_*ones(_c4_);"
+
+        if AC_pars[0] != 0 or AC_pars[1] != 0:
+            txt = "wave AC = _c6_*ones(_c4_);"
+            txt = "//Make pre-pulse\nwave AC_stark_tone_pre = %f*ones(%d);\n"%(AC_pars[0],nPointsPre)+"wave pi2pulse_pre_zeros = zeros(%d);\n"%(nPointsPre-pi2Width)+"wave pi2pulse_pre=join(pi2pulse_pre_zeros,pi2pulse);\n"
+            txt += "//Make post-pulse\nwave AC_stark_tone_post = %f*ones(%d);\n"%(AC_pars[0],nPointsPost)+"wave pi2pulse_post_zeros = zeros(%d);\n"%(nPointsPost-pi2Width)+ "wave pi2pulse_post=join(pi2pulse,pi2pulse_post_zeros);\nwave pi_pulse = join(pi2pulse_pre,pi2pulse_post);\nwave AC_tone = join(AC_stark_tone_pre,AC_stark_tone_pre);\n"
+            txt1 = "playWave(2,_c6_*ones(N));"
+            txt2 = "playWave(1,pi_pulse,2,AC_tone);"
             awg_program = awg_program.replace('_add_white_noise_',txt)
-            txt1 = "playWave(2,_c3_*ones(N));"
-            txt2 = "playWave(1,pipulse,2,AC);"
             awg_program = awg_program.replace('playZero(N,AWG_RATE_600MHZ);',txt1)
             awg_program = awg_program.replace('playWave(1,pipulse);',txt2)
         else:
@@ -538,16 +575,19 @@ def awg_seq(awg, device_awg='dev8233',fs=1.2e9, amplitude_hd = 1,nPoints= 200,nS
 
         awg_program = awg_program.replace('_c0_', str(fs))
         awg_program = awg_program.replace('_c1_', str(measPeriod))
-        awg_program = awg_program.replace('_c2_', str(4e-6))
+        awg_program = awg_program.replace('_c2_', str(1e-6))
         awg_program = awg_program.replace('_c3_', str(amplitude_hd))
-        awg_program = awg_program.replace('_c4_',str(int(2*pi2Width)))
+        awg_program = awg_program.replace('_c4_',str(int(pi2Width)))
         awg_program = awg_program.replace('_c5_',str(nAverages))
+        awg_program = awg_program.replace('_c6_',str(AC_pars[0]))
+        awg.setInt('/dev8233/triggers/out/0/source',4)
 
-    create_and_compile_awg(awg, device_awg, awg_program, seqr_index = 0, timeout = 10)
+    # print(awg_program)
+    create_and_compile_awg(awg, awg_program, seqr_index = 0, timeout = 10)
 
-def create_and_compile_awg(daq, device, awg_program, seqr_index= 0, timeout=1,verbose=0):
+def create_and_compile_awg(daq, awg_program, seqr_index= 0, timeout=1,verbose=0):
     awgModule = daq.awgModule()
-    awgModule.set('device', device)
+    awgModule.set('device', 'dev8233')
     awgModule.set('index', seqr_index)
     awgModule.execute()
     """Compile and upload awg_program as .elf file"""

@@ -16,191 +16,257 @@ import json
 import csv
 # import keyboard as kb
 import os
-import plot_functions as pf
+from plot_functions import Volt2dBm,Watt2dBm
 import itertools
-# from VISAdrivers.sa_api import *
+from VISAdrivers.sa_api import *
 import collections
 # from PyTektronixScope import PyTektronixScope
+import seaborn as sns; sns.set() # styling
+sns.set_style('ticks')
 
-def flatten(d, parent_key='', sep='_'):
-    items = []
-    for k, v in d.items():
-        new_key = parent_key + sep + k if parent_key else k
-        if isinstance(v, collections.MutableMapping):
-            items.extend(flatten(v, new_key, sep=sep).items())
+def snr(sa,fc,thres):
+
+    # configure
+
+    sa_config_acquisition(device = sa, detector = SA_AVERAGE, scale = SA_LOG_SCALE)
+    sa_config_center_span(sa, fc, 0.5e6)
+    sa_config_level(sa, thres)
+    sa_config_gain_atten(sa, SA_AUTO_ATTEN, SA_AUTO_GAIN, True)
+    sa_config_sweep_coupling(device = sa, rbw = 1e3, vbw = 1e3, reject=0)
+
+    # Initialize
+    sa_initiate(sa, SA_SWEEPING, 0)
+    query = sa_query_sweep_info(sa)
+    sweep_length = query["sweep_length"]
+    start_freq = query["start_freq"]
+    bin_size = query["bin_size"]
+
+    freqs = np.array([start_freq + i * bin_size for i in range(sweep_length)],dtype=float)
+
+    signal = sa_get_sweep_64f(sa)['max']
+    plt.plot(1e-9*freqs,signal)
+    plt.xticks(np.linspace(min(1e-9*freqs), max(1e-9*freqs),5))
+    plt.xlabel('Frequency (GHz)')
+    plt.ylabel('Power (dBm)')
+    plt.show()
+
+    max_ind = np.argmax(signal)
+    max_val = np.max(signal)
+    mask = np.logical_or (freqs < freqs[max_ind]-10e3, freqs > freqs[max_ind]+10e3)
+    noisetemp = signal[mask]
+    avg_noise = np.mean(noisetemp)
+    snr = max_val-avg_noise
+
+
+    print("SNR: %.1f\nNoise Floor: %.1f dBm"%(snr,avg_noise))
+
+def lo_isol(sa,inst,fc,mixer='qubit',amp=0.2,calib=0,plot=1):
+
+    # configure
+    sa_config_acquisition(device = sa, detector = SA_AVERAGE, scale = SA_LOG_SCALE)
+    sa_config_center_span(sa, fc, 0.5e6)
+    sa_config_gain_atten(sa, SA_AUTO_ATTEN, SA_AUTO_GAIN, True)
+    sa_config_sweep_coupling(device = sa, rbw = 1e3, vbw = 1e3, reject=0)
+
+
+    if mixer == 'qubit':
+        # qubit mixer
+        offset_qubit_ch1 = inst.get('/dev8233/sigouts/0/offset')['dev8233']['sigouts']['0']['offset']['value']
+        sa_config_level(sa, -50)
+        sa_initiate(sa, SA_SWEEPING, 0)
+        query = sa_query_sweep_info(sa)
+        sweep_length = query["sweep_length"]
+        start_freq = query["start_freq"]
+        bin_size = query["bin_size"]
+        freqs = np.array([start_freq + i * bin_size for i in range(sweep_length)],dtype=float)
+        #get OFF power (leakage)
+        signal_OFF = sa_get_sweep_64f(sa)['max']
+        OFF_power = np.max(signal_OFF)
+        if calib == 0:
+            #get ON power
+            sa_config_level(sa, 0)
+            sa_initiate(sa, SA_SWEEPING, 0)
+            inst.setDouble('/dev8233/sigouts/0/offset', amp)
+            inst.sync()
+            signal_ON = sa_get_sweep_64f(sa)['max']
+            ON_power = np.max(signal_ON)
+            inst.setDouble('/dev8233/sigouts/0/offset', offset_qubit_ch1)
+            inst.sync()
         else:
-            items.append((new_key, v))
-    return dict(items)
+            pass
 
-# def mixer_calib(awg,mixer='qubit',fc=3.875e9):
-#     """
-#     DESCRIPTION:
-#         Optimizes mixer at given frequency
+    elif mixer == 'ac':
+        # AC stark mixer
+        #get OFF power (leakage)
+        offset_ac_stark_ch1 = inst.get('/dev8233/sigouts/1/offset')['dev8233']['sigouts']['1']['offset']['value']
+        sa_config_level(sa, -50)
+        sa_initiate(sa, SA_SWEEPING, 0)
+        query = sa_query_sweep_info(sa)
+        sweep_length = query["sweep_length"]
+        start_freq = query["start_freq"]
+        bin_size = query["bin_size"]
+        freqs = np.array([start_freq + i * bin_size for i in range(sweep_length)],dtype=float)
+        #get OFF power (leakage)
+        signal_OFF = sa_get_sweep_64f(sa)['max']
+        OFF_power = np.max(signal_OFF)
+        if calib == 0:
+            #get ON power
+            sa_config_level(sa, 0)
+            sa_initiate(sa, SA_SWEEPING, 0)
+            inst.setDouble('/dev8233/sigouts/1/offset', amp)
+            inst.sync()
+            signal_ON = sa_get_sweep_64f(sa)['max']
+            ON_power = np.max(signal_ON)
+            inst.setDouble('/dev8233/sigouts/1/offset', offset_ac_stark_ch1)
+        else:
+            pass
 
-#     INPUTS:
-#         device (class): The instrument (AWG or QA) that controls the I and Q channels of the mixer we want to optimize
-#         mixer (string): The mixer we want to optimize. Options are "qubit","resonator",and "stark". Defaults to 'qubit'.
-#         f_c (float): The frequency we want to optimize at. Defaults to 3.875e9.
-#     """
+    elif mixer == 'readout':
+        # readout mixer
+        offset_readout_ch1 = inst.get('/dev2528/sigouts/0/offset')['dev2528']['sigouts']['0']['offset']['value']
+        #get OFF power (leakage)
+        sa_config_level(sa, -50)
+        sa_initiate(sa, SA_SWEEPING, 0)
+        query = sa_query_sweep_info(sa)
+        sweep_length = query["sweep_length"]
+        start_freq = query["start_freq"]
+        bin_size = query["bin_size"]
+        freqs = np.array([start_freq + i * bin_size for i in range(sweep_length)],dtype=float)
+        #get OFF power (leakage)
+        signal_OFF = sa_get_sweep_64f(sa)['max']
+        OFF_power = np.max(signal_OFF)
+        if calib == 0:
+            #get ON power
+            sa_config_level(sa, 0)
+            sa_initiate(sa, SA_SWEEPING, 0)
+            inst.set('/dev2528/sigouts/0/offset', amp)
+            inst.sync()
+            signal_ON = sa_get_sweep_64f(sa)['max']
+            ON_power = np.max(signal_ON)
+            inst.set('/dev2528/sigouts/0/offset', offset_readout_ch1)
+            inst.sync()
+        else:
+            pass
 
-#     # Open device
-#     handle = sa_open_device()["handle"]
-#     # Configure device
-#     sa_config_center_span(handle, fc, 0.25e6)
-#     sa_config_level(handle, -70)
-#     sa_config_sweep_coupling(device = handle, rbw = 1e3, vbw = 1e3, reject=0)
-#     sa_config_acquisition(device = handle, detector = SA_AVERAGE, scale = SA_LOG_SCALE)
-#     sa_config_gain_atten(handle, SA_AUTO_ATTEN, SA_AUTO_GAIN, True)
-
-#     # Initialize
-#     sa_initiate(handle, SA_SWEEPING, 0)
-#     query = sa_query_sweep_info(handle)
-#     sweep_length = query["sweep_length"]
-#     start_freq = query["start_freq"]
-#     bin_size = query["bin_size"]
-
-#     freqs = [start_freq + i * bin_size for i in range(sweep_length)]
-
-#     if mixer == 'qubit':
-#         device = 'dev8233'
-#         channels = [0,3]
-#     elif mixer == 'ac':
-#         device = 'dev8233'
-#         channels = [1,2]
-#     elif mixer == 'readout':
-#         device = 'dev2528'
-#         channels = [0,1]
-#     # get initial offset values
-#     I_offset = awg.get('/%s/sigouts/%d/offset'%(device,channels[0]))['dev8233']['sigouts']['%d'%channels[0]]['offset']['value']
-#     Q_offset = awg.get('/%s/sigouts/%d/offset'%(device,channels[1]))['dev8233']['sigouts']['%d'%(channels[1])]['offset']['value']
-#     data = sa_get_sweep_64f(handle)['max']
-#     peak_P = max(data)
-#     peak_f = np.argmax(data)
-#     print("Calibrating mixer at %.4f GHz"%(freqs[peak_f]*1e-9))
-
-#     dV = 1e-3
-#     i = 0 # 0 when adjusting I offset for the first time, 1 otherwise
-#     q = 0 # 0 when adjusting Q offset for the first time, 1 otherwise
-#     j = 0 # keeps track of channel changes (I->Q or Q->I)
-#     k = 0 # determines which channel we are adjusting (0 is I, 1 is Q)
-
-#     # Do calibration
-#     while max(sa_get_sweep_64f(handle)['max']) > -90:
-#         # read offset from channel
-#         offset = awg.get('/%s/sigouts/%d/offset'%(device,k))['%s'%(device)]['sigouts']['%d'%k]['offset']['value']
-#         awg.setDouble('/%s/sigouts/%d/offset'%(device,k),offset+dV)
-#         awg.sync()
-#         dP = peak_P - max(sa_get_sweep_64f(handle)['max'])
-#         if dP > 0 and i == 0:
-#             # go in the other direction
-#             awg.setDouble('/%s/sigouts/%d/offset'%(device,k),I_offset-dV)
-#             awg.sync()
-#             i = 1
-#         elif dP > 0 or dP < abs(0.1) and i == 1:
-#             # switch to other channel
-#             if k == 0:
-#                 k = 1
-#             elif k == 1:
-#                 k = 0
-#             j += 1
-#         elif dP < 0:
-#             # keep going in the same direction until no decrease in OFF power
-#             offset = awg.get('/%s/sigouts/%d/offset'%(device,k))['%s'%(device)]['sigouts']['%d'%(k)]['offset']['value']
-#             awg.setDouble('%s/sigouts/%d/offset'%(device,k),offset-dV)
-#             awg.sync()
-#         elif j > 0:
-#             # decrease stepsize by a factor of 10
-#             dV = dV/10
-#         elif dV < 1e-5:
-#             break
-#         time.sleep(2)
+    if plot == 1:
+        plt.plot(np.around(freqs,5),signal_ON)
+        plt.xticks(np.around(np.linspace(min(freqs), max(freqs),5),5))
+        plt.xlabel('Frequency (GHz)')
+        plt.ylabel('Power (dBm)')
+        plt.show()
 
 
-#     data = sa_get_sweep_64f(handle)['max']
-#     p_OFF = max(data)
-#     freq = np.argmax(data)
-#     print("Mixer Optimized\nOFF power is %.1f @ %.4f GHz"%(p_OFF,freq))
+    if calib == 0:
+        print("LO Off Power: %.1f dBm\nLO On Power: %.1f dBm\nLO Isolation: %.1f"%(OFF_power,ON_power,ON_power-OFF_power))
+    else:
+        ON_power = 0
 
-#     # Device no longer needed, close it
-#     sa_close_device(handle)
-
-#     # Plot
-#     fig = plt.figure()
-#     ax = fig.add_subplot(111)
-#     ax.plot(freqs,data)
-#     ax.set_xlabel('Frequency (GHz)')
-#     ax.set_ylabel('Power (dBm)')
-
-# def get_power(freq=5.7991e9,threshold=-80,plot=0):
-
-#     '''
-#     DESCRIPTION: retrieves the power at the specified frequency
-#     '''
-#     # Open device
-#     saCloseDevice()
-#     handle = sa_open_device()["handle"]
-
-#     # Configure device
-#     sa_config_center_span(handle, freq, 0.1e6)
-#     sa_config_level(handle, threshold)
-#     sa_config_sweep_coupling(handle, 1e3, 1e3, 0)
-#     sa_config_acquisition(handle, SA_AVERAGE, SA_LOG_SCALE)
-#     sa_config_gain_atten(handle, SA_AUTO_ATTEN, SA_AUTO_GAIN, True)
-
-#     # Initialize
-#     sa_initiate(handle, SA_SWEEPING, 0)
-#     query = sa_query_sweep_info(handle)
-#     sweep_length = query["sweep_length"]
-#     start_freq = query["start_freq"]
-#     bin_size = query["bin_size"]
-#     freqs = [start_freq + i * bin_size for i in range(sweep_length)]
-
-#     # Get sweep
-#     sweep_max = sa_get_sweep_32f(handle)['max']
-
-#     # Device no longer needed, close it
-#     sa_close_device(handle)
-
-#     index_max = np.argmax(np.array(sweep_max))
-#     freq_max = freqs[index_max]
-#     p_max = sweep_max[index_max]
-
-#     if plot == 1:
-#         # Plot
-#         freqs = [start_freq + i * bin_size for i in range(sweep_length)]
-#         fig = plt.figure()
-#         ax = fig.add_subplot(111)
-#         ax.plot(freqs,sweep_max)
-#         ax.set_xlabel('Frequency (GHz)')
-#         ax.set_ylabel('Power (dBm)')
-
-#     print('Max Power is %.1f dBm at %.6f GHz' %(p_max,freq_max*1e-9))
-#     return freq_max,p_max
+    return OFF_power,ON_power
 
 
-def readoutSetup(awg,sequence='spec',readout_pulse_length=1.2e-6,cav_resp_time=0.5e-6):
+def mixer_calib(sa,inst,mode,mixer='qubit',fc=3.875e9,amp=0.2):
+    """
+    DESCRIPTION:
+        Optimizes mixer at given frequency
+
+    INPUTS:
+        device (class): The instrument (AWG or QA) that controls the I and Q channels of the mixer we want to optimize
+        mixer (string): The mixer we want to optimize. Options are "qubit","resonator",and "stark". Defaults to 'qubit'.
+        f_c (float): The frequency we want to optimize at. Defaults to 3.875e9.
+        mode(string): Coarse or fine tuning
+        amp (float): Amplitude of ON Pulse
+    """
+
+    if mode == 'coarse':
+        span=20e-3
+        dV=1e-3
+    elif mode == 'fine':
+        span=2e-3
+        dV=0.1e-3
+
+    # Open device
+    if mixer == 'qubit':
+        device = 'dev8233'
+        channels = [0,2]
+    elif mixer == 'ac':
+        device = 'dev8233'
+        channels = [1,3]
+    elif mixer == 'readout':
+        device = 'dev2528'
+        channels = [0,1]
+
+    if str(inst) == 'awg':
+        device = 'dev8233'
+    elif str(inst) == 'daq':
+        device = 'dev2528'
+
+    vStart = np.zeros(2)
+    for i in range(len(vStart)):
+        vStart[i] = inst.get('/%s/sigouts/%d/offset'%(device,channels[i]))['%s'%(device)]['sigouts']['%d'%channels[i]]['offset']['value']
+    VoltRange1 = np.arange(vStart[0]-span/2,vStart[0]+span/2,dV)
+    VoltRange2 = np.arange(vStart[1]-span/2,vStart[1]+span/2,dV)
+
+    OFF_power1 = np.zeros(len(VoltRange1))
+    OFF_power2 = np.zeros(len(VoltRange2))
+    # Sweep individual channel voltages and find leakage
+    for i in range(len(VoltRange1)):
+        inst.setDouble('/%s/sigouts/%d/offset'%(device,channels[0]),VoltRange1[i])
+        inst.sync()
+        OFF_power1[i],ON_power = lo_isol(sa, inst, fc,mixer=mixer,plot=0,calib=1)
+
+    min_ind1 = np.argmin(OFF_power1)
+    inst.set('/%s/sigouts/%d/offset'%(device,channels[0]),VoltRange1[min_ind1])
+    inst.sync()
+
+    for i in range(len(VoltRange2)):
+        inst.setDouble('/%s/sigouts/%d/offset'%(device,channels[1]),VoltRange2[i])
+        inst.sync()
+        OFF_power2[i],ON_power = lo_isol(sa, inst, fc,mixer=mixer,plot=0,calib=1)
+
+    # find index of voltage corresponding to minimum LO leakage
+    # min_ind1 = np.argmin(OFF_power1)
+    min_ind2 = np.argmin(OFF_power2)
+    # set voltages to optimal values
+
+    inst.set('/%s/sigouts/%d/offset'%(device,channels[1]),VoltRange2[min_ind2])
+    inst.sync()
+
+    OFF_power,ON_power = lo_isol(sa, inst, fc,mixer=mixer,amp=amp,plot=1,calib=0)
+
+    fig,ax = plt.subplots(1,2,sharex=False,sharey=True,squeeze=False)
+    ax[0][0].plot(VoltRange1*1e3,OFF_power1,'-o',c='r')
+    ax[0][0].set_xlabel('Channel %d Voltage (mV)'%(channels[0]))
+    ax[0][0].set_ylabel('LO Leakage (dBm)')
+    ax[0][1].plot(VoltRange2*1e3,OFF_power2,'-o',c='b')
+    ax[0][1].set_xlabel('Channel %d Voltage (mV)'%(channels[1]))
+    textstr = 'Ch1 Voltage (mV):%.2f\nCh2 Voltage (mV):%.2f\nOFF Power (dBm): %.1f\nON Power (dBm): %.1f'%(VoltRange1[min_ind1]*1e3,VoltRange2[min_ind2]*1e3,OFF_power,ON_power)
+    plt.gcf().text(0.925, 0.45, textstr,fontsize=10,bbox=dict(boxstyle='round,rounding_size=1.25',facecolor='silver',alpha=0.5))
+    print('Ch1 Voltage (mV):%.2f\nCh2 Voltage (mV):%.2f\nOFF Power (dBm): %.1f\nON Power (dBm): %.1f'%(VoltRange1[min_ind1]*1e3,VoltRange2[min_ind2]*1e3,OFF_power,ON_power))
+
+def readoutSetup(awg,sequence='spec',readout_pulse_length=1.2e-6,rr_IF=5e6,cav_resp_time=0.5e-6):
 
     fs = 450e6
     readout_amp = 0.7
     # prepares QA for readout | loads readout Sequence into QA AWG and prepares QA
     print('-------------Setting up Readout Sequence-------------')
     if sequence =='spec':
-        qa.awg_seq_readout(awg,'dev2528', readout_length=readout_pulse_length,nPoints=roundToBase(readout_pulse_length*fs),base_rate=fs,cav_resp_time=cav_resp_time,amplitude_uhf=readout_amp)
+        qa.awg_seq_readout(awg,'dev2528', readout_length=readout_pulse_length,rr_IF=rr_IF,nPoints=roundToBase(readout_pulse_length*fs),base_rate=fs,cav_resp_time=cav_resp_time,amplitude_uhf=readout_amp)
         awg.setInt('/dev2528/awgs/0/time',2)
     elif sequence =='pulse':
-        qa.awg_seq_readout(awg,'dev2528', readout_length=readout_pulse_length,nPoints=roundToBase(readout_pulse_length*fs),base_rate=fs,cav_resp_time=cav_resp_time,amplitude_uhf=readout_amp)
+        qa.awg_seq_readout(awg,'dev2528', readout_length=readout_pulse_length,rr_IF=rr_IF,nPoints=roundToBase(readout_pulse_length*fs),base_rate=fs,cav_resp_time=cav_resp_time,amplitude_uhf=readout_amp)
         awg.setInt('/dev2528/awgs/0/time',2)
 
-def pulsed_spec_setup(daq,awg,nAverages,qubit_drive_amp,AC_pars=[0,0],qubit_drive_dur=30e-6,result_length=1,integration_length=2e-6,nPointsPre=0,nPointsPost=0):
+def pulsed_spec_setup(daq,awg,nAverages,qubit_drive_amp,AC_pars=[0,0],qubit_drive_dur=30e-6,result_length=1,integration_length=2e-6,nPointsPre=0,nPointsPost=0,delay=500):
 
-    hd.awg_seq(awg,'dev8233',sequence='qubit spec',fs=0.6e9,nAverages=nAverages,qubit_drive_dur=qubit_drive_dur,AC_pars=AC_pars,amplitude_hd= qubit_drive_amp,nPointsPre=nPointsPre,nPointsPost=nPointsPost)
+    hd.awg_seq(awg,sequence='qubit spec',fs=0.6e9,nAverages=nAverages,qubit_drive_dur=qubit_drive_dur,AC_pars=AC_pars,amplitude_hd= qubit_drive_amp,nPointsPre=nPointsPre,nPointsPost=nPointsPost)
     awg.setInt('/dev8233/awgs/0/time',2) # sets AWG sampling rate to 600 MHz
-    qa.config_qa(daq, 'dev2528',sequence='spec',integration_length=integration_length,delay=0,nAverages=1,result_length=result_length)
+    qa.config_qa(daq,sequence='spec',integration_length=integration_length,nAverages=1,result_length=result_length,delay=delay)
 
 def single_shot_setup(daq,awg,nAverages=1024,qubit_drive_amp=0.1,AC_pars=[0,0],fs=0.6e9,result_length=1,integration_length=2e-6,pi2Width=100e-9,measPeriod=400e-6):
 
     pi2Width = int(pi2Width*fs)
-    hd.awg_seq(awg,'dev8233',sequence='single_shot',fs=fs,nAverages=nAverages,AC_pars=AC_pars,amplitude_hd=qubit_drive_amp,measPeriod=measPeriod,pi2Width=pi2Width)
+    print('-------------Setting HDAWG sequence-------------')
+    hd.awg_seq(awg,sequence='single_shot',fs=fs,nAverages=nAverages,AC_pars=AC_pars,amplitude_hd=qubit_drive_amp,measPeriod=measPeriod,pi2Width=pi2Width)
     awg.setInt('/dev8233/awgs/0/time',2) # sets AWG sampling rate to 600 MHz
 
 def seq_setup(awg,sequence='rabi',nAverages=128,prePulseLength=1500e-9,postPulseLength=1500e-9,nPoints=1024,pulse_length_start=32,fs=2.4e9,nSteps=100,pulse_length_increment=16,Tmax=0.3e-6,amplitude_hd=1,AC_pars=[0.4,0],pi2Width=0,piWidth_Y=0,pipulse_position=20e-9,measPeriod=200e-6,instance=0,sweep_name=0,sweep=0,RT_pars=[0,0],active_reset=False):
@@ -244,10 +310,10 @@ def seq_setup(awg,sequence='rabi',nAverages=128,prePulseLength=1500e-9,postPulse
     fs_base = 2.4e9
     pi2Width = round(fs * pi2Width)
     piWidth_Y = round(fs*piWidth_Y)
-    if AC_pars[0] != 0:
+    if AC_pars[0] != 0 or AC_pars[1] != 0:
         nPointsPre = roundToBase(prePulseLength*fs+pi2Width)
         nPointsPost = roundToBase(postPulseLength*fs+pi2Width)
-        if nPointsPre >= 2048 or nPointsPost >= 2048:
+        if nPointsPre > 2048 or nPointsPost > 2048:
             print('Too many points in your AC pre/post pulses!(%d,%d)'%(nPointsPre,nPointsPost))
             sys.exit()
         else:
@@ -274,7 +340,7 @@ def seq_setup(awg,sequence='rabi',nAverages=128,prePulseLength=1500e-9,postPulse
 
 
 
-def single_shot(daq,awg,cav_resp_time=1e-6,measPeriod=400e-6,integration_length=2.3e-6,AC_pars=[0,0],pi2Width=100e-9,qubit_drive_amp=1,readout_drive_amp=0.1,setup=0,nAverages=128):
+def single_shot(daq,awg,cav_resp_time=1e-6,measPeriod=400e-6,integration_length=2.3e-6,AC_pars=[0,0],rr_IF=30e6,pi2Width=100e-9,qubit_drive_amp=1,readout_drive_amp=0.1,setup=0,nAverages=128):
     '''
     DESCRIPTION: Executes single shot experiment.
 
@@ -283,28 +349,28 @@ def single_shot(daq,awg,cav_resp_time=1e-6,measPeriod=400e-6,integration_length=
     fsAWG = 600e6
     base_rate = 1.8e9
 
-    readout_pulse_length = integration_length + cav_resp_time + 2e-6
+    readout_pulse_length = integration_length + cav_resp_time + 1e-6
 
     if not setup:
         single_shot_setup(daq,awg,pi2Width=pi2Width,result_length=result_length,fs=fsAWG,AC_pars=AC_pars,integration_length=integration_length,nAverages=nAverages,qubit_drive_amp=qubit_drive_amp,measPeriod=measPeriod)
         readoutSetup(daq,sequence='spec',readout_pulse_length=readout_pulse_length,cav_resp_time=cav_resp_time)
         time.sleep(0.1)
 
-
     sweep_data, paths = qa.create_sweep_data_dict(daq, 'dev2528')
     data_pi = []
     data_OFF = []
 
-
-    qa.enable_awg(daq, 'dev2528') # start the readout sequence
     bt = time.time()
     qa.qa_result_reset(daq, 'dev2528')
-    qa.config_qa(daq, 'dev2528',sequence='single shot',nAverages=1,integration_length=integration_length,result_length=result_length,delay=0)
+    hd.enable_awg(awg, 'dev8233',enable=0,awgs=[0])
+    qa.config_qa(daq,sequence='single shot',nAverages=1,integration_length=integration_length,result_length=result_length,delay=cav_resp_time)
     daq.sync()
+
     qa.qa_result_enable(daq, 'dev2528')
+    qa.enable_awg(daq, 'dev2528') # start the readout sequence
+    hd.enable_awg(awg,'dev8233',enable=1,awgs=[0])
 
     print('Start measurement')
-    hd.enable_awg(awg,'dev8233',enable=1,awgs=[0]) #runs the drive sequence
     data = qa.acquisition_poll(daq, paths, result_length, timeout = 3*nAverages*measPeriod) # transfers data from the QA result to the API for this frequency point
     # seperate OFF/ON data and average
     data_OFF = np.append(data_OFF, [data[paths[0]][k] for k in even(len(data[paths[0]]))])/(integration_length*base_rate)
@@ -337,8 +403,8 @@ def spectroscopy(daq,awg,qubitLO=0,cav_resp_time=1e-6,integration_length=2e-6,AC
     nPointsPre = nPointsPost = roundToBase(500e-9*fsAWG,base=16)
     qubit_drive_dur = roundToBase(30e-6*fsAWG,base=16)
     if not setup:
-        pulsed_spec_setup(daq, 'dev2528', awg, 'dev8233',result_length=result_length,AC_pars=AC_pars,qubit_drive_dur=qubit_drive_dur,integration_length=integration_length,nAverages=nAverages,qubit_drive_amp=qubit_drive_amp,nPointsPre=nPointsPre,nPointsPost=nPointsPost)
-        readoutSetup(daq, 'dev2528', sequence='spec',readout_pulse_length=readout_pulse_length,cav_resp_time=cav_resp_time)
+        pulsed_spec_setup(daq, awg, result_length=result_length,AC_pars=AC_pars,qubit_drive_dur=qubit_drive_dur,integration_length=integration_length,nAverages=nAverages,qubit_drive_amp=qubit_drive_amp,nPointsPre=nPointsPre,nPointsPost=nPointsPost,delay=cav_resp_time)
+        readoutSetup(daq, sequence='spec',readout_pulse_length=readout_pulse_length)
         time.sleep(0.1)
 
     # initialize signal generators and set power
@@ -388,7 +454,7 @@ def spectroscopy(daq,awg,qubitLO=0,cav_resp_time=1e-6,integration_length=2e-6,AC
 
 def pulse(daq,awg,setup=[0,0,0],Tmax=0.3e-6,nSteps=61,prePulseLength=1500e-9,postPulseLength=1500e-9,nAverages=128,amplitude_hd=1,
           sequence='rabi',AC_pars=[0,0],stepSize=2e-9, RT_pars=[0,0,0],cav_resp_time=0.5e-6,piWidth_Y=0,AC_freq=5e-9,
-          pipulse_position=20e-9,integration_length=2.3e-6,qubitDriveFreq=3.8135e9,run=1,pi2Width=0,sampling_rate=1.2e9,
+          pipulse_position=20e-9,integration_length=2.3e-6,qubitDriveFreq=3.8135e9,pi2Width=0,rr_IF = 30e6,sampling_rate=1.2e9,
           measPeriod=300e-6,sweep=0,sweep_name='sweep_001',instance=0,active_reset=False,threshold=500e-3,noise_instance=np.zeros(10)):
 
     '''
@@ -402,13 +468,14 @@ def pulse(daq,awg,setup=[0,0,0],Tmax=0.3e-6,nSteps=61,prePulseLength=1500e-9,pos
     sequence:                   Which experiment to perform (see description)
     pi2Width:                   Length of pi2 pulse in seconds
     instance:                   Which instance of telegraph noise to use. Used for sweeps
+    rr_IF:                      The IF of the readout mixer
     'pipulse_position':         Where to insert the pipulse (only applicable for echo with telegraph noise). A higher number means the pipulse is applied sooner
     cav_resp_time:              The time it takes for the cavity to ring up/down. Since we are using square integration pulse, we don't want to include the edges of the pulse
     integration_length:         How long the QA integrates for. The readout pulse is 2 microseconds longer than integration+cavity_response
     '''
     fs = sampling_rate
     base_rate = 1.8e9       # sampling rate of QA (cannot be changed in standard mode)
-    readout_pulse_length = integration_length + cav_resp_time + 2.0e-6
+    readout_pulse_length = integration_length + cav_resp_time + 1e-6
 
     if sequence == 'echo' and RT_pars[0] != 0:
         if int(fs*stepSize) < 64:
@@ -443,10 +510,13 @@ def pulse(daq,awg,setup=[0,0,0],Tmax=0.3e-6,nSteps=61,prePulseLength=1500e-9,pos
         awg.setVector(path,waveforms_native)
         et = time.time()
         print('replacing waveforms took: %.1f ms'%(1e3*(et-bt)))
+
+    time.sleep(1)
+
     if setup[1] == 0:
-        readoutSetup(daq,readout_pulse_length=readout_pulse_length,sequence='pulse',cav_resp_time=cav_resp_time)
+        readoutSetup(daq,readout_pulse_length=readout_pulse_length,sequence='pulse',rr_IF=rr_IF,cav_resp_time=cav_resp_time)
     if setup[2] == 0:
-        qa.config_qa(daq,'dev2528',sequence='pulse',nAverages=nAverages,integration_length=integration_length,result_length=nSteps,delay=0)
+        qa.config_qa(daq,sequence='pulse',nAverages=nAverages,rr_IF=rr_IF,integration_length=integration_length,result_length=nSteps,delay=cav_resp_time)
         daq.sync()
     if active_reset == True:
         setup_active_reset(awg, daq,threshold=threshold)
@@ -663,7 +733,7 @@ def create_wfm_file(AC_pars,RT_pars,nPoints,sweep,sweep_name,Tmax,instance,seque
     qubit_free_evol = qubit_free_evol[...,None]
 
     # create white noise instance
-    if AC_pars[0] != 0:
+    if AC_pars[0] != 0 or AC_pars[1] != 0:
         white_noise = np.random.normal(loc=AC_pars[0], scale=AC_pars[1], size=nPoints)
         white_noise = white_noise[...,None]
         len(qubit_free_evol)
@@ -846,8 +916,8 @@ def setup_active_reset(awg,daq,threshold=5):
     daq.setInt('/dev8233/awgs/0/auxtriggers/0/slope', 1)
     daq.setInt('/dev8233/awgs/0/auxtriggers/1/slope', 0)
     # sets trigger level
-    daq.setDouble('/dev8233/triggers/in/0/level', 0.7)
-    daq.setDouble('/dev8233/triggers/in/1/level', 0.7)
+    daq.setDouble('/dev8233/triggers/in/0/level', 0.3)
+    daq.setDouble('/dev8233/triggers/in/1/level', 0.3)
     #Configure QA settings
     # select trigger sources
     daq.setInt('/dev2528/triggers/out/0/source', 74)
@@ -856,11 +926,10 @@ def setup_active_reset(awg,daq,threshold=5):
     daq.setInt('/dev2528/triggers/out/0/drive', 1)
     daq.setInt('/dev2528/triggers/out/1/drive', 1)
     # set trigger levels to 3 V
-    daq.setDouble('/dev2528/triggers/in/0/level', 3)
-    daq.setDouble('/dev2528/triggers/in/1/level', 3)
+    # daq.setDouble('/dev2528/triggers/in/0/level', 3)
+    # daq.setDouble('/dev2528/triggers/in/1/level', 3)
     # sets QA result threshold
     daq.setDouble('/dev2528/qas/0/thresholds/0/level', threshold)
-    daq.setInt('/dev2528/qas/0/result/source', 7)
 
 # def set_AWG_output_amplitude(range)
 

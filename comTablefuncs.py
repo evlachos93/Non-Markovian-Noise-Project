@@ -83,7 +83,7 @@ def ct_pulse_length(n_wave, pulse_length_start = 32, pulse_length_increment = 16
             n_wave += 1
             if sequence == 'echo':
                 mid_pulse_length = AC_pars[2]
-                entry = {'index': n_wave+2,
+                entry = {'index': n_wave,
                           'waveform':{
                               'index': 3,
                               'length': mid_pulse_length

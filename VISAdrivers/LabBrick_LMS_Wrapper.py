@@ -16,7 +16,7 @@ ACTIVEDEVICES = DEVID*64
 
 
 def getDllObject(sName, argtypes=[DEVID,], restype=LVSTATUS):
-    """Create a dll ojbect with input and output types"""    
+    """Create a dll ojbect with input and output types"""
     obj = getattr(_lib, sName)
     obj.restype = restype
     obj.argypes = argtypes
@@ -205,20 +205,20 @@ class LabBrick_Synthesizer():
     def check_error(self, status=0):
         """If error occurred, get error message and raise error"""
         # error codes
-        BAD_PARAMETER = 0x80010000		
-        BAD_HID_IO    = 0x80020000		
-        DEVICE_NOT_READY = 0x80030000		
+        BAD_PARAMETER = 0x80010000
+        BAD_HID_IO    = 0x80020000
+        DEVICE_NOT_READY = 0x80030000
         dError = {BAD_PARAMETER: 'Out of range input - frequency outside min/max etc.',
                   BAD_HID_IO: 'A failure occurred internally during I/O to the device',
                   DEVICE_NOT_READY: "Device isn't open or no handle"}
         if status:
-            
+
             if status in dError:
                 sErr = dError[status]
             else:
                 sErr = 'Unknown error'
             raise Error(sErr)
-        
+
 
 
 if __name__ == '__main__':

@@ -47,6 +47,7 @@ import scipy as scy
 import plot_functions as pf
 import h5py
 from VISAdrivers.LabBrick_LMS_Wrapper import LabBrick_Synthesizer
+from VISAdrivers.sa_api import *
 pi = np.pi
 # from VISAdrivers.vaunix_attenuator_wrapper import VaunixAttenuator
 
@@ -67,6 +68,7 @@ qubitLO = LO.LO(address=qubitLO_IP,reset=False)
 readoutLO = LO.LO(readoutLO_IP,reset=False)
 acStarkLO = LabBrick_Synthesizer()
 acStarkLO.initDevice(21841)
+sa = sa_open_device()["handle"]
 # readout_attn = LabBrick_attn()
 # readout_attn.initDevice(26551)
 
@@ -75,7 +77,7 @@ readoutLO.RF_ON()
 acStarkLO.setRFOn(bRFOn=True)
 
 qubitLO.set_freq(3.3313)
-readoutLO.set_freq(7.2586)
+readoutLO.set_freq(7.2581)
 acStarkLO.setPowerLevel(9.0)
 acStarkLO.getUseInternalRef()
 acStarkLO.setFrequency(7.3586e9)
@@ -111,20 +113,26 @@ daq.setDouble('/dev2528/sigouts/0/offset',offset_readout_ch1)
 daq.setDouble('/dev2528/sigouts/1/offset',offset_readout_ch2)
 
 '''-----------------------------------------------------spectroscopy------------------------------------------------------'''
-iteration_spec = 1
+
+try:
+    directory = 'E:\\generalized-markovian-noise\\%s\\sweep_data\\spectroscopy\\' %(meas_device)
+    latest_file = max(glob.glob(os.path.join(directory, '*')), key=os.path.getmtime)
+    iteration_spec = int(latest_file[-3:].lstrip('0')) + 1
+except:
+    iteration_spec = 1
 
 options_spec = {
-    'frequencies':      np.arange(start=3.2,stop=3.4,step=1e-5), # frequencies are in GHz
-    'nAverages':        256,
+    'frequencies':      np.arange(start=3.0,stop=3.4,step=10e-5), # frequencies are in GHz
+    'nAverages':        1024,
     'setup':            0,
-    'qubit_drive_amp':     100e-3,
+    'qubit_drive_amp':     200e-3,
     'readout_drive_amp':     0.7,
-    'cav_resp_time':        0.5e-6,
+    'cav_resp_time':        0.25e-6,
     'integration_length':   2.3e-6,
-    'AC_pars':              [0.3,0]
+    'AC_pars':              [0.0,0]
     }
 
-p_data,I,Q = expf.spectroscopy(daq,device_qa,awg,device_awg,**options_spec,qubitLO=qubitLO)
+p_data,I,Q = expf.spectroscopy(daq,awg,qubitLO=qubitLO,**options_spec)
 # get current QA AWG offset for later reference
 # offset_readout_ch1 = daq.get('/dev2528/sigouts/0/offset')['dev2528']['sigouts']['0']['offset']['value']
 # # # # # set output of QA AWG to 1 V (what we use for readout)
@@ -139,34 +147,38 @@ pf.spec_plot(freq=options_spec['frequencies'],I=I,Q=Q,qubit_drive_amp=options_sp
 exp_pars = options_spec
 with open("E:\\generalized-markovian-noise\\%s\\spectroscopy\\%s_data_%03d.csv"%(meas_device,'spectroscopy',iteration_spec),"w",newline="") as datafile:
     writer = csv.writer(datafile)
-    writer.writerow(exp_pars)
-    writer.writerow(options_spec['frequencies'])
+    writer.writerow(options_spec.keys())
+    writer.writerow(options_spec.values())
     writer.writerow(I)
     writer.writerow(Q)
 
 iteration_spec += 1
 
-A_d = 0.23
 '''----------------------------------------------------------Rabi---------------------------------------------------------'''
-list_of_files = glob.glob('E:\generalized-markovian-noise\%s\Rabi\*.csv'%(meas_device))
-latest_file = max(list_of_files, key=os.path.getctime)
-iteration_rabi = int(latest_file[-7:-4].lstrip('0')) + 1
+
+A_d = 0.232
+try:
+    directory = 'E:\\generalized-markovian-noise\\%s\\sweep_data\\rabi\\' %(meas_device)
+    latest_file = max(glob.glob(os.path.join(directory, '*')), key=os.path.getmtime)
+    iteration_rabi = int(latest_file[-3:].lstrip('0')) + 1
+except:
+    iteration_rabi = 1
 
 options_rabi = {
     'sampling_rate':    2.4e9,
     'qubitDriveFreq':   3.3313e9,
     'integration_length':   2.3e-6,
-    'prePulseLength':   800e-9,
-    'postPulseLength':  800e-9,
+    'prePulseLength':   850e-9,
+    'postPulseLength':  200e-9,
     'cav_resp_time':    0.25e-6,
     'nAverages':        128,
-    'stepSize':         4e-9,
-    'Tmax':             0.65e-6,
+    'stepSize':         6e-9,
+    'Tmax':             0.6e-6,
     'amplitude_hd':     A_d,
     'sequence':         'rabi',
-    'measPeriod':       500e-6,
-    'AC_pars':          [0.315,0],
-    'AC_freq':          7.3586e9
+    'measPeriod':       600e-6,
+    'AC_pars':          [0.3,0],
+    'AC_freq':          7.3586e9,
     }
 
 if options_rabi['AC_pars'] == 0:
@@ -181,10 +193,12 @@ t,I,Q,nPoints = expf.pulse(daq,awg,**options_rabi)
 
 # plot data
 # options_rabi['AC_pars'][0] = options_rabi['AC_pars'][0]*6/20
-fitted_pars,error = pf.fit_data(x_vector=t,y_vector=I,dt=t[-1]/nPoints,**options_rabi)
-pf.plot_data(awg,x_vector=t,y_vector=I,fitted_pars=fitted_pars,**options_rabi,iteration=iteration_rabi)
+data = I
+fitted_pars,error = pf.fit_data(x_vector=t,y_vector=data,dt=t[-1]/nPoints,**options_rabi)
+pf.plot_data(awg,x_vector=t,y_vector=data,fitted_pars=fitted_pars,**options_rabi,iteration=iteration_rabi)
 
 pi_pulse = np.round(1/2*fitted_pars[1])
+threshold = round(np.mean(data)*2**12)
 
 # save data
 with open("E:\\generalized-markovian-noise\\%s\\rabi\\%s_data_%03d.csv"%(meas_device,'rabi',iteration_rabi),"w",newline="") as datafile:
@@ -196,33 +210,57 @@ with open("E:\\generalized-markovian-noise\\%s\\rabi\\%s_data_%03d.csv"%(meas_de
 
 iteration_rabi += 1
 
+'''---------------------------------------Single Shot-------------------------------------------'''
+
+options_single_shot = {
+    'nAverages':        2**10,
+    'setup':            0,
+    'pi2Width':         1/2*pi_pulse*1e-9,
+    'measPeriod':       600e-6,
+    'qubit_drive_amp':     A_d,
+    'cav_resp_time':        0.25e-6,
+    'integration_length':   2.3e-6,
+    'AC_pars':              [options_rabi['AC_pars'][0],0],
+    'rr_IF':            30e6
+    }
+
+data_OFF, data_pi = expf.single_shot(daq,awg,**options_single_shot)
+
+#make 2D histogram
+pf.plot_single_shot(data_OFF, data_pi)
+
 '''---------------------------------------------------------Ramsey---------------------------------------------------------'''
-list_of_files = glob.glob('E:\generalized-markovian-noise\%s\Ramsey\*.csv'%(meas_device))
-latest_file = max(list_of_files, key=os.path.getctime)
-iteration_ramsey = int(latest_file[-7:-4].lstrip('0')) + 1
+
+try:
+    directory = 'E:\\generalized-markovian-noise\\%s\\sweep_data\\ramsey\\' %(meas_device)
+    latest_file = max(glob.glob(os.path.join(directory, '*')), key=os.path.getmtime)
+    iteration_ramsey = int(latest_file[-3:].lstrip('0')) + 1
+except:
+    iteration_ramsey = 1
 
 detun = 0e6
 
 options_ramsey = {
     'sampling_rate':    1.2e9,
-    'nAverages':        512,
-    'Tmax':             20e-6,
-    'stepSize':         40e-9,
+    'nAverages':        256,
+    'Tmax':             25e-6,
+    'stepSize':         100e-9,
     'prePulseLength':   1500e-9,
-    'postPulseLength':  500e-9,
+    'postPulseLength':  200e-9,
     'integration_length':   2.3e-6,
     'cav_resp_time':    options_rabi['cav_resp_time'],
     'amplitude_hd':     A_d,
     'active_reset':     True,
-    'threshold':        71,
+    'threshold':        threshold,
     'sequence':         'ramsey',
     'measPeriod':       500e-6,
     'qubitDriveFreq':   options_rabi['qubitDriveFreq']+detun,
     'sweep':            0,
     'pi2Width':         1/2*pi_pulse*1e-9,
-    'AC_pars':          [0.315,0.015],
+    'AC_pars':          [0.3,0],
     'AC_freq':          options_rabi['AC_freq'],
-    'RT_pars':          [0,0,0]
+    'RT_pars':          [0,0,0],
+    'rr_IF':            30e6
     }
 
 qubitLO.set_freq(options_ramsey['qubitDriveFreq']/1e9)
@@ -230,9 +268,9 @@ qubitLO.set_freq(options_ramsey['qubitDriveFreq']/1e9)
 t,I,Q,nPoints = expf.pulse(daq,awg,setup=[0,0,0],**options_ramsey)
 
 # plot data
-# options_ramsey['AC_pars'][0] = options_ramsey['AC_pars'][0]*6/20
-fitted_pars,error = pf.fit_data(x_vector=t,y_vector=I,dt=t[-1]/nPoints,**options_ramsey)
-pf.plot_data(awg,x_vector=t,y_vector=I,fitted_pars=fitted_pars,**options_ramsey,iteration=iteration_ramsey,plot_mode=2)
+data = I
+fitted_pars,error = pf.fit_data(x_vector=t,y_vector=data,dt=t[-1]/nPoints,**options_ramsey)
+pf.plot_data(awg,x_vector=t,y_vector=data,fitted_pars=fitted_pars,**options_ramsey,iteration=iteration_ramsey,plot_mode=0)
 
 # save data
 with open("E:\\generalized-markovian-noise\\%s\\ramsey\\%s_data_%03d.csv"%(meas_device,'ramsey',iteration_ramsey),"w",newline="") as datafile:
@@ -246,9 +284,13 @@ with open("E:\\generalized-markovian-noise\\%s\\ramsey\\%s_data_%03d.csv"%(meas_
 iteration_ramsey += 1
 
 '''---------------------------------------------------------Echo---------------------------------------------------------'''
-list_of_files = glob.glob('E:\generalized-markovian-noise\%s\Echo\*.csv'%(meas_device))
-latest_file = max(list_of_files, key=os.path.getctime)
-iteration_echo = int(latest_file[-7:-4].lstrip('0')) + 1
+
+try:
+    directory = 'E:\\generalized-markovian-noise\\%s\\sweep_data\\echo\\' %(meas_device)
+    latest_file = max(glob.glob(os.path.join(directory, '*')), key=os.path.getmtime)
+    iteration_echo = int(latest_file[-3:].lstrip('0')) + 1
+except:
+    iteration_echo = 1
 
 options_echo = {
     'sampling_rate':    1.2e9,
@@ -256,7 +298,9 @@ options_echo = {
     'Tmax':             30e-6,
     'stepSize':         100e-9,
     'integration_length': 2.3e-6,
-    'cav_resp_time':    0.5e-6,
+    'prePulseLength':   1500e-9,
+    'postPulseLength':  200e-9,
+    'cav_resp_time':    options_rabi['cav_resp_time'],
     'amplitude_hd':     A_d,
     'sequence':         'echo',
     # 'nSteps':           57,
@@ -268,14 +312,17 @@ options_echo = {
     # 'pipulse_position': 104e-9,
     'AC_pars':          [options_rabi['AC_pars'][0],0],
     'AC_freq':          options_rabi['AC_freq'],
-    'RT_pars':          [0,0],
+    'RT_pars':          [0,0,0],
+    'rr_IF':            30e6
 }
 
 qubitLO.set_freq(options_echo['qubitDriveFreq']/1e9)
 
 t,I,Q,nPoints = expf.pulse(daq,awg,setup=[0,0,0],**options_echo)
 # plot data
-T_2, error = pf.pulse_plot1d(x_vector=t, y_vector=I,**options_echo,iteration=iteration_echo)
+data = I
+fitted_pars,error = pf.fit_data(x_vector=t,y_vector=data,dt=t[-1]/nPoints,**options_echo)
+pf.plot_data(awg,x_vector=t,y_vector=data,fitted_pars=fitted_pars,**options_echo,iteration=iteration_echo,plot_mode=0)
 
 # save data
 with open("E:\\generalized-markovian-noise\\%s\\echo\\%s_data_%03d.csv"%(meas_device,'echo',iteration_echo),"w",newline="") as datafile:
@@ -289,32 +336,40 @@ with open("E:\\generalized-markovian-noise\\%s\\echo\\%s_data_%03d.csv"%(meas_de
 iteration_echo += 1
 
 '''---------------------------------------------------------T1---------------------------------------------------------'''
-list_of_files = glob.glob('E:\generalized-markovian-noise\%s\T1\*.csv'%(meas_device))
-latest_file = max(list_of_files, key=os.path.getctime)
-iteration_T1 = int(latest_file[-7:-4].lstrip('0')) + 1
+
+try:
+    directory = 'E:\\generalized-markovian-noise\\%s\\sweep_data\\T1\\' %(meas_device)
+    latest_file = max(glob.glob(os.path.join(directory, '*')), key=os.path.getmtime)
+    iteration_T1 = int(latest_file[-3:].lstrip('0')) + 1
+except:
+    iteration_T1 = 1
 
 options_T1 = {
     'sampling_rate':    1.2e9,
     'nAverages':        128,
-    'Tmax':             75e-6,
+    'Tmax':             100e-6,
     'stepSize':         1000e-9,
     'integration_length': 2.3e-6,
-    'cav_resp_time':    0.5e-6,
+    'cav_resp_time':    options_rabi['cav_resp_time'],
     'amplitude_hd':     A_d,
     'sequence':         'T1',
-    'measPeriod':       400e-6,
+    'measPeriod':       600e-6,
     'qubitDriveFreq':   options_rabi['qubitDriveFreq']+detun,
     'sweep':            0,
     'pi2Width':         1/2*pi_pulse*1e-9,
     'AC_pars':          options_rabi['AC_pars'],
-    'RT_pars':          [0,0]
+    'RT_pars':          [0,0,0],
+    'rr_IF':            30e6
 }
 
-qubitLO.set_freq(options_echo['qubitDriveFreq']/1e9)
+qubitLO.set_freq(options_T1['qubitDriveFreq']/1e9)
 
-t,I,Q,nPoints = expf.pulse(daq,awg,qubitLO,setup=[0,0,0],**options_T1)
+t,I,Q,nPoints = expf.pulse(daq,awg,setup=[0,0,0],**options_T1)
 # plot data
-T_1, error = pf.pulse_plot1d(x_vector=t, y_vector=I,plot=1,**options_T1,iteration=iteration_T1)
+data = Q
+fitted_pars,error = pf.fit_data(x_vector=t,y_vector=data,dt=t[-1]/nPoints,**options_T1)
+pf.plot_data(awg,x_vector=t,y_vector=data,fitted_pars=fitted_pars,**options_T1,iteration=iteration_T1,plot_mode=0)
+
 
 # save data
 with open("E:\\generalized-markovian-noise\\%s\\T1\\%s_data_%03d.csv"%(meas_device,'T1',iteration_T1),"w",newline="") as datafile:
@@ -698,7 +753,7 @@ tau = np.concatenate((np.linspace(0.1,2,7),np.linspace(3,20,4)))
 
 # initialize arrays for data
 stepSize_background = 40e-9
-Tmax_background = 10e-6
+Tmax_background = 8e-6
 stepSize = 40e-9
 Tmax = 15.5e-6
 nPoints, nStepsBackground, pulse_length_increment, pulse_length_start = expf.calc_nSteps(sequence='ramsey',fsAWG=1.2e9,stepSize=stepSize_background,Tmax=Tmax_background)
@@ -728,8 +783,8 @@ optionsRamsey_par_sweep = {
     'sampling_rate':    1.2e9,
     'active_reset':     True,
     'threshold':        options_ramsey['threshold'],
-    'prePulseLength':   1500e-9,
-    'postPulseLength':  1500e-9,
+    'prePulseLength':   options_ramsey['prePulseLength'],
+    'postPulseLength':  options_ramsey['postPulseLength'],
     'nAverages':        256,
     'Tmax':             3e-6,
     'stepSize':         100e-9,
@@ -745,7 +800,7 @@ optionsRamsey_par_sweep = {
     'AC_freq':          acStarkLO.getFrequency()
     }
 
-par_sweep_time = expf.calc_sweep_time(par1=nu, par2=tau,measTimeBackground=5,measTime=5,nMeasBackground=b_measurements,nMeas=numRealizations)
+par_sweep_time = expf.calc_sweep_time(par1=B0, par2=tau,measTimeBackground=5,measTime=5,nMeasBackground=b_measurements,nMeas=numRealizations)
 print('Estimated Sweep Time: %.1f hours = %.1f days'%(par_sweep_time/3600,par_sweep_time/(3600*24)))
 start_sweep = time.time()
 # generate data
@@ -1019,22 +1074,3 @@ for i in range(len(B0)):
 end_sweep = time.time()
 print('Total Sweep Duration: %.1f s or %.1f hours, or %.1f days' %(end_sweep-start_sweep,(end_sweep-start_sweep)/3600,(end_sweep-start_sweep)/(3600*24)))
 sweep_count += 1
-
-
-'''---------------------------------------Single Shot-------------------------------------------'''
-
-options_single_shot = {
-    'nAverages':        2**10,
-    'setup':            0,
-    'pi2Width':         1/2*pi_pulse*1e-9,
-    'measPeriod':       600e-6,
-    'qubit_drive_amp':     A_d,
-    'cav_resp_time':        options_rabi['cav_resp_time'],
-    'integration_length':   2.3e-6,
-    'AC_pars':              [options_rabi['AC_pars'][0],0]
-    }
-
-data_OFF, data_pi = expf.single_shot(daq,awg,**options_single_shot)
-
-#make 2D histogram
-pf.plot_single_shot(data_OFF, data_pi)
