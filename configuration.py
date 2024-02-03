@@ -1,34 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# ## Demo introduction and preparition for single qubits characterization
-
-# This demo file is for basic qubit charaterization. The including exerimental sequences are
-# - Resonator spectroscopy
-# - Qubit spectroscopy
-# - Rabi flopping
-# - T1 and T2
-# - Mixer calibration
-#
-# Required instruments
-# - HDAWG and UHFQA
-# - LO MW sources for both qubit driving and qubit readout
-# - Frequency up and down conversion units
-# - Control PC, USB or LAN connection
-#
-# Recommanded connections for HDAWG and UHFQA
-# - Ref clc out of UHFQA connected to Ref clc in of HDAWG
-# - Trigger output 1 of HDAWG to Ref/Trigger 1 of UHFQA
-# - Enable DIO connection if it is necessary
-#
-
-# ## Import Modules
-
-# In[4]:
-
-
-#  ---------- keyboard shortcuts in 'Help' tap ------------
-# restart kernel when somthing changed in subfunctions
+# script that inititializes Zurich instruments along with peripherals like LO's
 
 # from VISAdrivers import sa_api as sa
 import time
